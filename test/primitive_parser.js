@@ -217,6 +217,23 @@ describe('Primitive parser', function(){
                 e: 1
             }, cb);
         });
+        it('should parse 6-byte-length bit field sequence', function(done) {
+            var cb = getCb(2, done)
+
+            var parser = new Parser()
+                .bit48('a');
+            var buf = binaryLiteral('111111111111111111111111111111111111111111111111');
+            checkResult(parser, buf, {
+                a: 281474976710655
+            }, cb);
+
+            parser = new Parser()
+                .endianess('little')
+                .bit48('a');
+            checkResult(parser, buf, {
+                a: 281474976710655
+            }, cb);
+        });
         it('should parse nested bit fields', function(done) {
             var parser = new Parser()
                 .bit1('a')
