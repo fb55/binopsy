@@ -1,19 +1,24 @@
-'use strict'
+"use strict";
 
-const fs = require('fs')
-const tar = require('./')
-const path = require('path')
+const fs = require("fs");
+const tar = require("./");
+const path = require("path");
 
-const file = fs.createWriteStream(path.resolve(process.argv[2]))
+const file = fs.createWriteStream(path.resolve(process.argv[2]));
 
-process.argv.slice(3).map(function (n) { return path.resolve(n) }).forEach(read)
+process.argv
+  .slice(3)
+  .map(function (n) {
+    return path.resolve(n);
+  })
+  .forEach(read);
 
-function read (p) {
-  if(p.endsWith('.DS_Store')) return
+function read(p) {
+  if (p.endsWith(".DS_Store")) return;
 
-  console.log('PACKING', p)
+  console.log("PACKING", p);
 
-  const stat = fs.statSync(p)
+  const stat = fs.statSync(p);
 
   var record = {
     name: path.relative(process.cwd(), p),
@@ -22,35 +27,39 @@ function read (p) {
     gid: stat.gid,
     size: 0,
     mtime: Math.floor(stat.mtime / 1000),
-    linkname: '',
-    magic: 'ustar\0',
-    version: '00',
-    uname: '', //TODO
-    gname: '', //TODO
+    linkname: "",
+    magic: "ustar\0",
+    version: "00",
+    uname: "", //TODO
+    gname: "", //TODO
     devmajor: 0,
     devminor: 0,
-    prefix: '',
+    prefix: "",
 
     type: null,
-    data: new Buffer(0)
-  }
+    data: new Buffer(0),
+  };
 
   if (stat.isDirectory()) {
-    record.type = 'Directory'
+    record.type = "Directory";
   } else if (stat.isFile()) {
-    record.type = 'File'
+    record.type = "File";
 
-    const contents = fs.readFileSync(p)
+    const contents = fs.readFileSync(p);
 
-    record.size = contents.length
-    record.data = contents
+    record.size = contents.length;
+    record.data = contents;
   } else {
-    throw new Error('Unsupported type')
+    throw new Error("Unsupported type");
   }
 
-  file.write(tar.Record.serialize(record))
+  file.write(tar.Record.serialize(record));
 
   if (stat.isDirectory()) {
-    fs.readdirSync(p).map(function (n) { return path.resolve(p, n) }).forEach(read)
+    fs.readdirSync(p)
+      .map(function (n) {
+        return path.resolve(p, n);
+      })
+      .forEach(read);
   }
 }
