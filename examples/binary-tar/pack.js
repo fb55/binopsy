@@ -8,9 +8,7 @@ const file = fs.createWriteStream(path.resolve(process.argv[2]));
 
 process.argv
   .slice(3)
-  .map(function (n) {
-    return path.resolve(n);
-  })
+  .map((n) => path.resolve(n))
   .forEach(read);
 
 function read(p) {
@@ -20,7 +18,7 @@ function read(p) {
 
   const stat = fs.statSync(p);
 
-  var record = {
+  const record = {
     name: path.relative(process.cwd(), p),
     mode: stat.mode,
     uid: stat.uid,
@@ -30,14 +28,14 @@ function read(p) {
     linkname: "",
     magic: "ustar\0",
     version: "00",
-    uname: "", //TODO
-    gname: "", //TODO
+    uname: "", // TODO
+    gname: "", // TODO
     devmajor: 0,
     devminor: 0,
     prefix: "",
 
     type: null,
-    data: new Buffer(0),
+    data: Buffer.alloc(0),
   };
 
   if (stat.isDirectory()) {
@@ -57,9 +55,7 @@ function read(p) {
 
   if (stat.isDirectory()) {
     fs.readdirSync(p)
-      .map(function (n) {
-        return path.resolve(p, n);
-      })
+      .map((n) => path.resolve(p, n))
       .forEach(read);
   }
 }

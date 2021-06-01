@@ -5,15 +5,15 @@
   "description": "Reimplementation of binary-parser supporting serialization and streaming",
   "main": "index.js",
   "devDependencies": {
+    "eslint": "^7.27.0",
+    "eslint-config-prettier": "^8.3.0",
     "istanbul": "^0.4.5",
     "mocha": "^5.0.1",
-    "prettier": "^2.3.0",
-    "standard": "^8.6.0"
+    "prettier": "^2.3.0"
   },
   "scripts": {
-    "test": "NODE_ENV=test mocha --reporter spec && npm run lint",
-    "cover": "istanbul cover --report html node_modules/.bin/_mocha",
-    "lint": "standard index.js lib/*.js"
+    "test": "NODE_ENV=test mocha --reporter spec",
+    "lint": "eslint ."
   },
   "keywords": [
     "binary",

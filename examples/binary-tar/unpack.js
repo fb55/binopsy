@@ -7,7 +7,7 @@ const mkdirp = require("mkdirp");
 
 const file = fs.createReadStream(path.resolve(process.argv[2]));
 
-file.pipe(tar.Record.stream()).on("data", function (d) {
+file.pipe(tar.Record.stream()).on("data", (d) => {
   console.log("UNPACKING", d);
 
   if (d.name === "") {
@@ -23,6 +23,6 @@ file.pipe(tar.Record.stream()).on("data", function (d) {
       mkdirp.sync(d.name);
       break;
     default:
-      throw new Error("Unknown type " + d.type);
+      throw new Error(`Unknown type ${d.type}`);
   }
 });
