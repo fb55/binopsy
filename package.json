@@ -30,6 +30,6 @@
     "url": "http://github.com/fb55/binopsy.git"
   },
   "dependencies": {
-    "binary-parser": "^1.1.5"
+    "binary-parser": "^2.3.0"
   }
 }
