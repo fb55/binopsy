@@ -6,14 +6,10 @@ const Serializer = require("./lib/serializer.js");
 const getType = require("./lib/type_functions.js");
 
 const PRIMITIVE_TYPES = require("./lib/primitive_types.json");
-const PRIMITIVES = Object.keys(PRIMITIVE_TYPES).map((key) => {
-  return key.toLowerCase();
-});
+const PRIMITIVES = Object.keys(PRIMITIVE_TYPES).map((key) => key.toLowerCase());
 
-// array with ints 1..24
-const BIT_VALS = Array.apply(null, Array(32)).map((_, i) => {
-  return i + 1;
-});
+// Array with ints 1..24
+const BIT_VALS = Array.apply(null, Array(32)).map((_, i) => i + 1);
 
 class Bin {
   parser = new Parser();
@@ -21,11 +17,9 @@ class Bin {
   endian = "be";
   bitRequests = [];
 
-  static start = () => {
-    return new Bin();
-  };
+  static start = () => new Bin();
 
-  static Parser = Bin; // work as drop-in replacement for binary-parser
+  static Parser = Bin; // Work as drop-in replacement for binary-parser
 
   serialize(obj, buf) {
     this._flushBitfield();
@@ -40,33 +34,33 @@ class Bin {
   choice(varName, options) {
     this._flushBitfield();
 
-    const choices = options.choices;
+    const {choices} = options;
     const mappedChoices = {};
 
-    for (var key in choices) {
+    for (const key in choices) {
       mappedChoices[key] = getType(choices[key]);
     }
 
     const defaultChoice =
       options.defaultChoice && getType(options.defaultChoice);
 
-    const tag = options.tag;
+    const {tag} = options;
     const getTag =
       typeof tag === "function"
         ? tag
         : (obj) => {
             if (!(tag in obj))
-              throw new Error(`tag \`${tag}\` not found in object`);
+              {throw new Error(`tag \`${tag}\` not found in object`);}
             return obj[tag];
           };
 
-    var getChoice = defaultChoice
+    const getChoice = defaultChoice
       ? (obj) => {
-          var key = getTag(obj);
+          const key = getTag(obj);
           return key in mappedChoices ? mappedChoices[key] : defaultChoice;
         }
       : (obj) => {
-          var choice = mappedChoices[getTag(obj)];
+          const choice = mappedChoices[getTag(obj)];
           if (!choice) throw new Error("invalid choice");
           return choice;
         };
@@ -82,7 +76,7 @@ class Bin {
   }
 
   compile() {
-    /* do nothing */
+    /* Do nothing */
   }
 
   getCode() {
@@ -99,19 +93,17 @@ class Bin {
   }
 
   nest(varName, options) {
-    var type = getType(options.type, true);
-    var opts = { __proto__: options, type: type };
+    const type = getType(options.type, true);
+    const opts = { __proto__: options, type };
 
     if (type.bitRequests.length) {
       this.bitRequests = this.bitRequests.concat(
-        type.bitRequests.map((req) => {
-          return {
+        type.bitRequests.map((req) => ({
             i: req.i,
             vars: [varName].concat(req.vars),
             options: req.options,
             // TODO support constructors
-          };
-        }, this)
+          }), this)
       );
     }
 
@@ -121,14 +113,12 @@ class Bin {
   }
 
   _flushBitfield() {
-    var reqs = this.bitRequests;
+    let reqs = this.bitRequests;
 
     if (!reqs.length) return;
     if (this.endian === "le") reqs = reqs.reverse();
 
-    const length = reqs.reduce((sum, req) => {
-      return sum + req.i;
-    }, 0);
+    const length = reqs.reduce((sum, req) => sum + req.i, 0);
 
     this.serializer._processBitfield(reqs, length);
     this.parser.processBitfield(reqs, length);
@@ -136,7 +126,7 @@ class Bin {
     this.bitRequests = [];
   }
 
-  // copied from binary_parser.js
+  // Copied from binary_parser.js
   endianess(endianess) {
     switch (endianess.toLowerCase()) {
       case "little":
@@ -146,13 +136,13 @@ class Bin {
         this.endian = "be";
         break;
       default:
-        throw new Error("Invalid endianess: " + endianess);
+        throw new Error(`Invalid endianess: ${  endianess}`);
     }
 
     return this;
   }
 
-  // alias properties
+  // Alias properties
   get writeFunc() {
     return this.serializer.writeFunc;
   }
@@ -189,9 +179,9 @@ class Bin {
 );
 
 BIT_VALS.forEach((i) => {
-  Bin.prototype["bit" + i] = function (varName, options) {
+  Bin.prototype[`bit${  i}`] = function (varName, options) {
     // TODO support constructors
-    this.bitRequests.push({ i: i, vars: [varName], options: options });
+    this.bitRequests.push({ i, vars: [varName], options });
     return this;
   };
 });
@@ -200,7 +190,7 @@ Object.keys(PRIMITIVE_TYPES)
   .filter((p) => p.endsWith("BE"))
   .map((p) => p.toLowerCase())
   .forEach((primitiveName) => {
-    var name = primitiveName.slice(0, -2).toLowerCase();
+    const name = primitiveName.slice(0, -2).toLowerCase();
 
     Bin.prototype[name] = function (varName, options) {
       return this[name + this.endian](varName, options);
