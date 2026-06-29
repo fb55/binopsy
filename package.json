@@ -9,7 +9,7 @@
     "eslint-config-prettier": "^10.1.8",
     "istanbul": "^0.4.5",
     "mocha": "^11.7.6",
-    "prettier": "^3.8.4"
+    "prettier": "^3.9.1"
   },
   "scripts": {
     "test": "NODE_ENV=test mocha --reporter spec",
