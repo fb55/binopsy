@@ -1,18 +1,23 @@
-const assert = require("assert");
-const { Parser } = require("../");
+import assert from "node:assert";
+import { Parser, type Bin } from "../src/index.ts";
 
-function checkResult(parser, buffer, object, done) {
+function checkResult<T extends object>(
+  parser: Bin<T>,
+  buffer: Buffer,
+  object: T,
+  done: () => void,
+) {
   assert.deepStrictEqual(parser.parse(buffer), object);
   assert.deepStrictEqual(
     binaryString(parser.serialize(object)),
-    binaryString(buffer)
+    binaryString(buffer),
   );
 
   let received = false;
 
   const stream = parser
     .stream()
-    .on("data", (parsed) => {
+    .on("data", (parsed: T) => {
       // Parse only once
       if (!received) {
         assert.deepStrictEqual(parsed, object);
@@ -25,20 +30,20 @@ function checkResult(parser, buffer, object, done) {
     });
 
   for (let i = 1; i <= buffer.length; i++) {
-    stream.write(buffer.slice(i - 1, i));
+    stream.write(buffer.subarray(i - 1, i));
   }
 
   stream.end();
 }
 
-function getCb(count, done) {
+function getCb(count: number, done: () => void) {
   return function cb() {
     if (--count === 0) done();
   };
 }
 
-function binaryString(buf) {
-  return [].map.call(buf, (n) => n.toString(2)).join(" ");
+function binaryString(buf: Buffer) {
+  return Array.from(buf, (n) => n.toString(2)).join(" ");
 }
 
 describe("Primitive parser", () => {
@@ -117,9 +122,9 @@ describe("Primitive parser", () => {
   });
 
   describe("Bit field parsers", () => {
-    const binaryLiteral = function (s) {
+    const binaryLiteral = function (s: string) {
       let i;
-      const bytes = [];
+      const bytes: number[] = [];
 
       s = s.replace(/\s/g, "");
       for (i = 0; i < s.length; i += 8) {
@@ -133,7 +138,7 @@ describe("Primitive parser", () => {
       assert.deepStrictEqual(binaryLiteral("11110000"), Buffer.from([0xf0]));
       assert.deepStrictEqual(
         binaryLiteral("11110000 10100101"),
-        Buffer.from([0xf0, 0xa5])
+        Buffer.from([0xf0, 0xa5]),
       );
     });
 
@@ -152,7 +157,7 @@ describe("Primitive parser", () => {
           c: 10,
           d: 0,
         },
-        cb
+        cb,
       );
 
       parser = new Parser()
@@ -171,7 +176,7 @@ describe("Primitive parser", () => {
           c: 10,
           d: 1,
         },
-        cb
+        cb,
       );
     });
     it("should parse 2-byte-length bit field sequence", (done) => {
@@ -188,7 +193,7 @@ describe("Primitive parser", () => {
           b: 455,
           c: 7,
         },
-        cb
+        cb,
       );
 
       parser = new Parser().endianess("little").bit3("a").bit9("b").bit4("c");
@@ -200,7 +205,7 @@ describe("Primitive parser", () => {
           b: 398,
           c: 11,
         },
-        cb
+        cb,
       );
     });
     it("should parse 4-byte-length bit field sequence", (done) => {
@@ -223,7 +228,7 @@ describe("Primitive parser", () => {
           d: 1,
           e: 1,
         },
-        cb
+        cb,
       );
 
       parser = new Parser()
@@ -243,7 +248,7 @@ describe("Primitive parser", () => {
           d: 2,
           e: 1,
         },
-        cb
+        cb,
       );
     });
     it("should parse nested bit fields", (done) => {
@@ -264,7 +269,7 @@ describe("Primitive parser", () => {
             d: 0,
           },
         },
-        done
+        done,
       );
     });
 
@@ -279,7 +284,7 @@ describe("Primitive parser", () => {
         {
           a: 835505663,
         },
-        done
+        done,
       );
     });
   });
@@ -347,7 +352,7 @@ describe("Primitive parser", () => {
           b: "defgh",
           c: "ij",
         },
-        done
+        done,
       );
     });
     it("should strip trailing null characters", (done) => {
@@ -401,7 +406,7 @@ describe("Primitive parser", () => {
             },
           ],
         },
-        done
+        done,
       );
     });
   });

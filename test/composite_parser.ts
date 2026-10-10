@@ -1,7 +1,12 @@
-const assert = require("assert");
-const { Parser } = require("../");
+import assert from "node:assert";
+import { Parser, type Bin } from "../src/index.ts";
 
-function checkResult(parser, buffer, object, done) {
+function checkResult<T extends object>(
+  parser: Bin<T>,
+  buffer: Buffer,
+  object: T,
+  done: () => void,
+) {
   assert.deepEqual(parser.parse(buffer), object);
   assert.deepEqual(parser.serialize(object).toString(), buffer.toString());
 
@@ -9,7 +14,7 @@ function checkResult(parser, buffer, object, done) {
 
   const stream = parser
     .stream()
-    .on("data", (parsed) => {
+    .on("data", (parsed: T) => {
       if (received) return; // Might be triggered a second time, ignored here
       assert.deepEqual(parsed, object);
       received = true;
@@ -20,13 +25,13 @@ function checkResult(parser, buffer, object, done) {
     });
 
   for (let i = 1; i <= buffer.length; i++) {
-    stream.write(buffer.slice(i - 1, i));
+    stream.write(buffer.subarray(i - 1, i));
   }
 
   stream.end();
 }
 
-function getCb(count, done) {
+function getCb(count: number, done: () => void) {
   return function cb() {
     if (--count === 0) done();
   };
@@ -48,7 +53,7 @@ describe("Composite parser", () => {
           length: 12,
           message: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
         },
-        done
+        done,
       );
     });
     it("should parse array of user defined types", (done) => {
@@ -72,7 +77,7 @@ describe("Composite parser", () => {
             { key: 0xbe, value: 1235 },
           ],
         },
-        done
+        done,
       );
     });
     it("should parse array of arrays", (done) => {
@@ -120,7 +125,7 @@ describe("Composite parser", () => {
             { length: 5, cols: [0, 9, 18, 27, 36] },
           ],
         },
-        done
+        done,
       );
     });
     it("should parse until eof when readUntil is specified", (done) => {
@@ -138,7 +143,7 @@ describe("Composite parser", () => {
         {
           data: [0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff],
         },
-        done
+        done,
       );
     });
     it("should parse until function returns true when readUntil is function", (done) => {
@@ -156,7 +161,7 @@ describe("Composite parser", () => {
         {
           data: [0xff, 0xff, 0xff, 0x01, 0x00],
         },
-        done
+        done,
       );
     }); /*
         `it('should parse until function returns true when readUntil is function (using read-ahead)', function(done){
@@ -207,7 +212,7 @@ describe("Composite parser", () => {
             },
           },
         },
-        done
+        done,
       );
     });
     it("should use formatter to transform parsed array", (done) => {
@@ -229,7 +234,7 @@ describe("Composite parser", () => {
         {
           data: "10.10.1.110",
         },
-        done
+        done,
       );
     });
   });
@@ -266,7 +271,7 @@ describe("Composite parser", () => {
           tag2: 1,
           data2: 1234,
         },
-        done
+        done,
       );
     });
     it("should parse default choice", (done) => {
@@ -291,7 +296,7 @@ describe("Composite parser", () => {
           data: 0xff,
           test: 314159,
         },
-        done
+        done,
       );
     });
     it("should parse choices of user defied types", (done) => {
@@ -323,7 +328,7 @@ describe("Composite parser", () => {
             message: "hello, world",
           },
         },
-        cb
+        cb,
       );
       buffer = Buffer.from([0x03, 0x4e, 0x61, 0xbc, 0x00]);
       checkResult(
@@ -335,7 +340,7 @@ describe("Composite parser", () => {
             number: 12345678,
           },
         },
-        cb
+        cb,
       );
     });
     it("should accept a function as a tag", (done) => {
@@ -362,7 +367,7 @@ describe("Composite parser", () => {
           data: 0xff,
           test: 314159,
         },
-        done
+        done,
       );
     });
     it("should flatten user defined types with option", (done) => {
@@ -393,7 +398,7 @@ describe("Composite parser", () => {
           length: 12,
           message: "hello, world",
         },
-        cb
+        cb,
       );
       buffer = Buffer.from([0x03, 0x4e, 0x61, 0xbc, 0x00]);
       checkResult(
@@ -403,7 +408,7 @@ describe("Composite parser", () => {
           tag: 3,
           number: 12345678,
         },
-        cb
+        cb,
       );
     });
   });
@@ -442,7 +447,7 @@ describe("Composite parser", () => {
             age: 0x20,
           },
         },
-        done
+        done,
       );
     });
 
@@ -472,7 +477,7 @@ describe("Composite parser", () => {
         {
           name: "John Doe",
         },
-        done
+        done,
       );
     });
   });
@@ -480,9 +485,7 @@ describe("Composite parser", () => {
   describe("Constructors", () => {
     it("should create a custom object type", () => {
       class Person {
-        constructor() {
-          this.name = "";
-        }
+        name = "";
         toString() {
           return "[object Person]";
         }
@@ -514,26 +517,26 @@ describe("Composite parser", () => {
       assert.equal(parser.sizeOf(), 1 + 4 + 10 + /* 2 +*/ 3);
       assert.equal(
         parser.sizeOf({ a: 0, b: 0, msg: "", data: [1, 2, 3] }),
-        1 + 4 + 10 + /* 2 +*/ 3
+        1 + 4 + 10 + /* 2 +*/ 3,
       );
     });
     it("should assert parsed values", () => {
-      let parser = Parser.start().string("msg", {
+      const stringParser = Parser.start().string("msg", {
         encoding: "ascii",
         zeroTerminated: true,
         assert: "hello, world",
       });
       let buffer = Buffer.from("68656c6c6f2c20776f726c6400", "hex");
       assert.doesNotThrow(() => {
-        parser.parse(buffer);
+        stringParser.parse(buffer);
       });
 
       buffer = Buffer.from("68656c6c6f2c206a7300", "hex");
       assert.throws(() => {
-        parser.parse(buffer);
+        stringParser.parse(buffer);
       });
 
-      parser = new Parser()
+      const parser = new Parser()
         .int16le("a")
         .int16le("b")
         .int16le("c", {
@@ -560,7 +563,8 @@ describe("Composite parser", () => {
       const cb = getCb(8, done);
 
       for (let i = 17; i <= 24; i++) {
-        const parser = Parser.start()[`bit${i}`]("a").uint8("b");
+        const bit = `bit${i}` as "bit17";
+        const parser = Parser.start()[bit]("a").uint8("b");
 
         checkResult(
           parser,
@@ -569,7 +573,7 @@ describe("Composite parser", () => {
             a: 1 << (i - 16),
             b: 4,
           },
-          cb
+          cb,
         );
       }
     });
@@ -593,7 +597,7 @@ describe("Composite parser", () => {
           fixed_nest: 1,
           trailing: 3,
         },
-        done
+        done,
       );
     });
   });
@@ -612,7 +616,7 @@ describe("Composite parser", () => {
       parser,
       buffer,
       { fixed_nest: { msg: text.slice(0, -1) }, trailing: 48 },
-      done
+      done,
     );
   });
 });

@@ -1,37 +1,44 @@
-"use strict";
+import { PRIMITIVE_TYPES, type PrimitiveName } from "./primitive-types.ts";
+import type { BitRequest, FieldOptions, Obj, ResolvedType } from "./types.ts";
+import type {
+  ArrayParseOptions,
+  LengthOption,
+  StringParseOptions,
+} from "./parser.ts";
 
-const PRIMITIVE_TYPES = require("./primitive_types.json");
 const DEBUG = process.env.NODE_ENV === "test";
 
-function getGetVarFunc(varName) {
+type Getter = (obj: Obj) => unknown;
+
+function getGetVarFunc(varName: string): Getter {
   return (obj) => {
     if (!(varName in obj)) throw new Error(`var \`${varName}\` not found`);
     return obj[varName];
   };
 }
 
-function getGetLengthFunc(length) {
+function getGetLengthFunc(length: LengthOption): (obj: Obj) => number {
   if (typeof length === "number") {
     return () => length;
   }
 
   if (typeof length === "string") {
-    return (obj) => obj[length];
+    return (obj) => obj[length] as number;
   }
 
   if (typeof length === "function") {
     return (obj) => length.call(obj);
   }
 
-  throw new Error(`unrecognized length ${length}`);
+  throw new Error(`unrecognized length ${String(length)}`);
 }
 
-class Serializer {
-  sizeFunc = () => 0;
-  writeFunc = () => 0;
-  vars = new Set();
+export class Serializer {
+  sizeFunc: (obj: Obj) => number = () => 0;
+  writeFunc: (obj: Obj, buf: Buffer) => number = () => 0;
+  vars = new Set<string>();
 
-  serialize(obj, buf) {
+  serialize(obj: Obj, buf?: Buffer): Buffer {
     if (!Buffer.isBuffer(buf)) {
       const size = this.sizeFunc(obj);
       buf = Buffer.alloc(size);
@@ -46,15 +53,15 @@ class Serializer {
     return buf;
   }
 
-  string(varName, options) {
-    const getVar = this._getVarFunc(varName, options);
+  string(varName: string, options: StringParseOptions): this {
+    const getVar = this._getVarFunc(varName, options) as (obj: Obj) => string;
 
-    const { sizeFunc } = this;
-    const { writeFunc } = this;
+    const { sizeFunc, writeFunc } = this;
 
-    const encoding = options.encoding || "utf8";
+    const encoding = options.encoding ?? "utf8";
 
-    const getByteLength = (obj) => Buffer.byteLength(getVar(obj), encoding);
+    const getByteLength = (obj: Obj) =>
+      Buffer.byteLength(getVar(obj), encoding);
 
     if (options.length) {
       const getLength =
@@ -68,10 +75,10 @@ class Serializer {
         : (obj) => getLength(obj) + sizeFunc(obj);
 
       const addZeros = options.zeroTerminated
-        ? (written, len) => (written < len ? 1 : 0)
+        ? (written: number, len: number) => (written < len ? 1 : 0)
         : options.stripNull
-        ? (written, len) => len - written
-        : () => 0;
+          ? (written: number, len: number) => len - written
+          : () => 0;
 
       this.writeFunc = (obj, buf) => {
         const offset = writeFunc(obj, buf);
@@ -96,22 +103,24 @@ class Serializer {
         const offset = writeFunc(obj, buf);
         const val = getVar(obj);
 
-        return offset + buf.write(`${val}\0`, offset, val.length + 1, encoding);
+        return (
+          offset +
+          buf.write(`${val}\0`, offset, getByteLength(obj) + 1, encoding)
+        );
       };
 
       return this;
     }
 
     throw new Error(
-      ".string() needs either a length or a zero-terminated string"
+      ".string() needs either a length or a zero-terminated string",
     );
   }
 
-  nest(varName, options) {
+  nest(varName: string, options: FieldOptions & { type: ResolvedType }): void {
     const getVar = this._getVarFunc(varName, options);
 
-    const { sizeFunc } = this;
-    const { writeFunc } = this;
+    const { sizeFunc, writeFunc } = this;
 
     const typeSize = options.type.sizeFunc;
     const typeWrite = options.type.writeFunc;
@@ -120,25 +129,30 @@ class Serializer {
 
     this.writeFunc = (obj, buf) => {
       const offset = writeFunc(obj, buf);
-      return offset + typeWrite(getVar(obj), buf.slice(offset));
+      return offset + typeWrite(getVar(obj), buf.subarray(offset));
     };
   }
 
-  fixedSizeNest(varName, options, type) {
+  fixedSizeNest(
+    varName: string,
+    options: FieldOptions & { length?: LengthOption },
+    type: ResolvedType,
+  ): void {
     const getVar = this._getVarFunc(varName, options);
 
-    const { sizeFunc } = this;
-    const { writeFunc } = this;
+    const { sizeFunc, writeFunc } = this;
 
     const typeWrite = type.writeFunc;
 
+    if (options.length === undefined)
+      throw new Error("fixedSizeNest needs a length");
     const getLength = getGetLengthFunc(options.length);
 
     this.sizeFunc = (obj) => getLength(obj) + sizeFunc(obj);
 
     this.writeFunc = (obj, buf) => {
       const offset = writeFunc(obj, buf);
-      const written = typeWrite(getVar(obj), buf.slice(offset));
+      const written = typeWrite(getVar(obj), buf.subarray(offset));
       const length = getLength(obj);
 
       if (written > length) {
@@ -149,23 +163,23 @@ class Serializer {
     };
   }
 
-  array(varName, options, type) {
+  array(varName: string, options: ArrayParseOptions, type: ResolvedType): void {
     // TODO check if passed array has acceptable length
-    let getVar = this._getVarFunc(varName, options);
+    let getVar = this._getVarFunc(varName, options) as (obj: Obj) => unknown[];
 
     if (typeof options.key === "string") {
-      const plainVar = getVar;
+      const plainVar = getVar as unknown as (obj: Obj) => Obj;
+      const { key } = options;
       getVar = (obj) => {
         const val = plainVar(obj);
-        return Object.keys(val).map((key) => {
-          if (val[key][options.key] !== key) throw new Error("invalid mapping");
-          return val[key];
+        return Object.keys(val).map((k) => {
+          if ((val[k] as Obj)[key] !== k) throw new Error("invalid mapping");
+          return val[k];
         });
       };
     }
 
-    const { sizeFunc } = this;
-    const { writeFunc } = this;
+    const { sizeFunc, writeFunc } = this;
 
     const typeSize = type.sizeFunc;
     const typeWrite = type.writeFunc;
@@ -183,33 +197,37 @@ class Serializer {
       const arr = getVar(obj);
       let offset = writeFunc(obj, buf);
       for (let i = 0; i < arr.length; i++) {
-        offset += typeWrite(arr[i], buf.slice(offset));
+        offset += typeWrite(arr[i], buf.subarray(offset));
       }
       return offset;
     };
   }
 
-  choice(varName, options, getChoice) {
+  choice(
+    varName: string,
+    options: FieldOptions,
+    getChoice: (obj: Obj) => ResolvedType,
+  ): void {
     const getVar = this._getVarFunc(varName, options);
 
-    const { sizeFunc } = this;
-    const { writeFunc } = this;
+    const { sizeFunc, writeFunc } = this;
 
     this.sizeFunc = (obj) =>
       getChoice(obj).sizeFunc(getVar(obj)) + sizeFunc(obj);
 
     this.writeFunc = (obj, buf) => {
       const offset = writeFunc(obj, buf);
-      return offset + getChoice(obj).writeFunc(getVar(obj), buf.slice(offset));
+      return (
+        offset + getChoice(obj).writeFunc(getVar(obj), buf.subarray(offset))
+      );
     };
   }
 
-  buffer(varName, options) {
+  buffer(varName: string, options: FieldOptions): void {
     // TODO check for length
-    const getVar = this._getVarFunc(varName, options);
+    const getVar = this._getVarFunc(varName, options) as (obj: Obj) => Buffer;
 
-    const { sizeFunc } = this;
-    const { writeFunc } = this;
+    const { sizeFunc, writeFunc } = this;
 
     this.sizeFunc = (obj) => getVar(obj).length + sizeFunc(obj);
 
@@ -219,7 +237,31 @@ class Serializer {
     };
   }
 
-  _processBitfield(reqs, length) {
+  /** Writes a fixed-size primitive. */
+  primitive(
+    name: PrimitiveName,
+    varName: string,
+    options?: FieldOptions,
+  ): void {
+    const getVar = this._getVarFunc(varName, options);
+    const { size, write } = PRIMITIVE_TYPES[name];
+    const writeMethod = Buffer.prototype[write] as (
+      this: Buffer,
+      value: unknown,
+      offset: number,
+    ) => number;
+
+    // Add the size of the primitive
+    const { sizeFunc, writeFunc } = this;
+    this.sizeFunc = (obj) => size + sizeFunc(obj);
+
+    this.writeFunc = (obj, buf) => {
+      const offset = writeFunc(obj, buf);
+      return writeMethod.call(buf, getVar(obj), offset);
+    };
+  }
+
+  _processBitfield(reqs: BitRequest[], length: number): void {
     const beforePrepareFunc = this.writeFunc;
     this.writeFunc = function prepare(obj, buf) {
       const offset = beforePrepareFunc(obj, buf);
@@ -238,9 +280,9 @@ class Serializer {
 
       const getVar = req.vars
         .map(getGetVarFunc)
-        .reduce((p, n) => (obj) => n(p(obj)));
+        .reduce((p, n) => (obj) => n(p(obj) as Obj)) as (obj: Obj) => number;
 
-      return (obj, buf) => {
+      return (obj: Obj, buf: Buffer) => {
         let offset = writeFunc(obj, buf);
         let val = getVar(obj);
         let bitsWrittenInByte = innerByteOffset;
@@ -283,53 +325,35 @@ class Serializer {
     this.sizeFunc = (obj) => bytes + sizeFunc(obj);
   }
 
-  _getVarFunc(varName, options) {
+  private _getVarFunc(
+    varName: string,
+    options: FieldOptions | undefined,
+  ): Getter {
     // To ensure getting a value is the same while reading & serializing
     if (this.vars.has(varName)) throw new Error("duplicated var name");
     this.vars.add(varName);
 
-    if (options && options.formatter && !options.deformatter) {
+    if (options?.formatter && !options.deformatter) {
       throw new Error("formats need to be reversible");
     }
 
-    if (options && options.deformatter) {
-      const { deformatter } = options;
+    if (options?.deformatter) {
+      const deformatter = options.deformatter as (
+        value: unknown,
+        obj: Obj,
+      ) => unknown;
 
       if (options.flatten) {
-        return deformatter;
+        return deformatter as unknown as Getter;
       }
 
       return (obj) => deformatter(obj[varName], obj);
     }
 
-    if (options && options.flatten) {
+    if (options?.flatten) {
       return (obj) => obj;
     }
 
     return getGetVarFunc(varName);
   }
 }
-
-Object.keys(PRIMITIVE_TYPES).forEach((primitiveName) => {
-  const writeKey = `write${primitiveName}`;
-  const primitiveSize = PRIMITIVE_TYPES[primitiveName];
-
-  Serializer.prototype[primitiveName.toLowerCase()] = function (
-    varName,
-    options
-  ) {
-    const getVar = this._getVarFunc(varName, options);
-
-    // Add the size of the primitive
-    const { sizeFunc } = this;
-    this.sizeFunc = (obj) => primitiveSize + sizeFunc(obj);
-
-    const { writeFunc } = this;
-    this.writeFunc = (obj, buf) => {
-      const offset = writeFunc(obj, buf);
-      return buf[writeKey](getVar(obj), offset);
-    };
-  };
-});
-
-module.exports = Serializer;
