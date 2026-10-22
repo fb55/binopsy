@@ -2,19 +2,13 @@
   "parserOptions": {
     "ecmaVersion": 2022
   },
-  "extends": [
-    "eslint:recommended",
-    "prettier"
-  ],
+  "extends": ["eslint:recommended", "prettier"],
   "env": {
     "node": true,
     "es6": true
   },
   "rules": {
-    "eqeqeq": [
-      2,
-      "smart"
-    ],
+    "eqeqeq": [2, "smart"],
     "no-caller": 2,
     "dot-notation": 2,
     "no-var": 2,
@@ -25,60 +19,47 @@
         "allowNamedFunctions": true
       }
     ],
-    "arrow-body-style": [
-      2,
-      "as-needed"
-    ],
+    "arrow-body-style": [2, "as-needed"],
     "object-shorthand": 2,
     "prefer-template": 2,
-    "one-var": [
-      2,
-      "never"
-    ],
+    "one-var": [2, "never"],
     "prefer-destructuring": [
       2,
       {
         "object": true
       }
     ],
-    "capitalized-comments": 2,
-    "multiline-comment-style": [
+    "capitalized-comments": [
       2,
-      "starred-block"
+      "always",
+      {
+        "ignorePattern": "prettier-ignore"
+      }
     ],
-    "spaced-comment": 2,
-    "yoda": [
+    "multiline-comment-style": [2, "starred-block"],
+    "spaced-comment": [
       2,
-      "never"
+      "always",
+      {
+        "markers": ["/"]
+      }
     ],
-    "curly": [
-      2,
-      "multi-line"
-    ],
+    "yoda": [2, "never"],
+    "curly": [2, "multi-line"],
     "no-else-return": 2
   },
   "root": true,
-  "ignorePatterns": [
-    "lib/",
-    "node_modules/"
-  ],
+  "ignorePatterns": ["lib/", "node_modules/"],
   "overrides": [
     {
-      "files": [
-        "*.ts"
-      ],
+      "files": ["*.ts"],
       "parser": "@typescript-eslint/parser",
       "parserOptions": {
         "project": "./tsconfig.json",
         "sourceType": "module"
       },
-      "plugins": [
-        "@typescript-eslint"
-      ],
-      "extends": [
-        "plugin:@typescript-eslint/recommended",
-        "prettier"
-      ],
+      "plugins": ["@typescript-eslint"],
+      "extends": ["plugin:@typescript-eslint/recommended", "prettier"],
       "rules": {
         "no-unused-vars": 0,
         "@typescript-eslint/no-unused-vars": [

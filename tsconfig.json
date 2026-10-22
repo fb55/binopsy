@@ -17,5 +17,5 @@
     "types": ["node", "mocha"],
     "noEmit": true
   },
-  "include": ["src", "test"]
+  "include": ["src", "test", "bench", "examples"]
 }

@@ -26,29 +26,28 @@ export const PRIMITIVE_TYPES = {
 /** Name of a fixed-size primitive, e.g. `"uint16le"`. */
 export type PrimitiveName = keyof typeof PRIMITIVE_TYPES;
 
-/** JavaScript type a primitive is parsed into: `bigint` for 64-bit integers. */
-export type PrimitiveValue<N extends PrimitiveName> =
-  N extends `${string}64${string}` ? bigint : number;
+/** JavaScript type a primitive (or `uint64` etc.) is parsed into: `bigint` for 64-bit integers. */
+export type PrimitiveValue<N extends string> = N extends `${string}64${string}`
+  ? bigint
+  : number;
 
-/**
- * Primitives without an endianness suffix. They resolve to the `le` or `be`
- * variant depending on the parser's current endianness.
- */
-export const ENDIAN_ALIASES = {
-  uint16: "uint16",
-  uint32: "uint32",
-  uint64: "uint64",
-  int16: "int16",
-  int32: "int32",
-  int64: "int64",
-  float: "float",
-  double: "double",
-} as const;
+/** Reads primitive `name` at `buf[offset]`. */
+export function readPrimitive(
+  name: PrimitiveName,
+  buf: Buffer,
+  offset: number,
+): number | bigint {
+  return buf[PRIMITIVE_TYPES[name].read](offset);
+}
 
-export type EndianAlias = keyof typeof ENDIAN_ALIASES;
-
-export const PRIMITIVE_NAMES = Object.keys(PRIMITIVE_TYPES) as PrimitiveName[];
-
-export function isPrimitiveName(name: string): name is PrimitiveName {
-  return Object.prototype.hasOwnProperty.call(PRIMITIVE_TYPES, name);
+/** Writes primitive `name` at `buf[offset]`; returns the offset after it. */
+export function writePrimitive(
+  name: PrimitiveName,
+  buf: Buffer,
+  value: unknown,
+  offset: number,
+): number {
+  return (
+    buf[PRIMITIVE_TYPES[name].write] as (v: unknown, o: number) => number
+  )(value, offset);
 }

@@ -1,359 +1,195 @@
-import { PRIMITIVE_TYPES, type PrimitiveName } from "./primitive-types.ts";
-import type { BitRequest, FieldOptions, Obj, ResolvedType } from "./types.ts";
-import type {
-  ArrayParseOptions,
-  LengthOption,
-  StringParseOptions,
-} from "./parser.ts";
+/**
+ * Serializes values: `sizeOf` measures a value, `write` writes it. Lengths
+ * given by fields or functions must match the value (strings are padded with
+ * zero bytes up to their length).
+ */
+import {
+  lengthOf,
+  pick,
+  resolve,
+  tagOf,
+  writeBits,
+  type Field,
+  type Obj,
+  type Type,
+} from "./fields.ts";
+import { PRIMITIVE_TYPES, writePrimitive } from "./primitive-types.ts";
 
-const DEBUG = process.env.NODE_ENV === "test";
-
-type Getter = (obj: Obj) => unknown;
-
-function getGetVarFunc(varName: string): Getter {
-  return (obj) => {
-    if (!(varName in obj)) throw new Error(`var \`${varName}\` not found`);
-    return obj[varName];
-  };
-}
-
-function getGetLengthFunc(length: LengthOption): (obj: Obj) => number {
-  if (typeof length === "number") {
-    return () => length;
-  }
-
-  if (typeof length === "string") {
-    return (obj) => obj[length] as number;
-  }
-
-  if (typeof length === "function") {
-    return (obj) => length.call(obj);
-  }
-
-  throw new Error(`unrecognized length ${String(length)}`);
-}
-
-export class Serializer {
-  sizeFunc: (obj: Obj) => number = () => 0;
-  writeFunc: (obj: Obj, buf: Buffer) => number = () => 0;
-  vars = new Set<string>();
-
-  serialize(obj: Obj, buf?: Buffer): Buffer {
-    if (!Buffer.isBuffer(buf)) {
-      const size = this.sizeFunc(obj);
-      buf = Buffer.alloc(size);
-
-      if (DEBUG) {
-        buf.fill(0);
-      }
-    }
-
-    this.writeFunc(obj, buf);
-
-    return buf;
-  }
-
-  string(varName: string, options: StringParseOptions): this {
-    const getVar = this._getVarFunc(varName, options) as (obj: Obj) => string;
-
-    const { sizeFunc, writeFunc } = this;
-
-    const encoding = options.encoding ?? "utf8";
-
-    const getByteLength = (obj: Obj) =>
-      Buffer.byteLength(getVar(obj), encoding);
-
-    if (options.length) {
-      const getLength =
-        options.length === Infinity
-          ? getByteLength
-          : getGetLengthFunc(options.length);
-
-      this.sizeFunc = options.zeroTerminated
-        ? (obj) =>
-            Math.min(getLength(obj), getByteLength(obj) + 1) + sizeFunc(obj)
-        : (obj) => getLength(obj) + sizeFunc(obj);
-
-      const addZeros = options.zeroTerminated
-        ? (written: number, len: number) => (written < len ? 1 : 0)
-        : options.stripNull
-          ? (written: number, len: number) => len - written
-          : () => 0;
-
-      this.writeFunc = (obj, buf) => {
-        const offset = writeFunc(obj, buf);
-        const len = getLength(obj);
-        const written = buf.write(getVar(obj), offset, len, encoding);
-        const toAdd = addZeros(written, len);
-
-        for (let i = 0; i < toAdd; i++) {
-          buf[offset + written + i] = 0;
-        }
-
-        return offset + written + toAdd;
-      };
-
-      return this;
-    }
-
-    if (options.zeroTerminated) {
-      this.sizeFunc = (obj) => getByteLength(obj) + 1 + sizeFunc(obj);
-
-      this.writeFunc = (obj, buf) => {
-        const offset = writeFunc(obj, buf);
-        const val = getVar(obj);
-
-        return (
-          offset +
-          buf.write(`${val}\0`, offset, getByteLength(obj) + 1, encoding)
-        );
-      };
-
-      return this;
-    }
-
-    throw new Error(
-      ".string() needs either a length or a zero-terminated string",
+/** Serializes `value`, into `buffer` if given; returns the bytes written. */
+export function serialize(type: Type, value: unknown, buffer?: Buffer): Buffer {
+  const size = sizeOf(type, value);
+  if (buffer && buffer.length < size) {
+    throw new RangeError(
+      `the value needs ${size} bytes, but the buffer has ${buffer.length}`,
     );
   }
+  const out = buffer ? buffer.subarray(0, size) : Buffer.alloc(size);
+  write(type, value, out, 0);
+  return out;
+}
 
-  nest(varName: string, options: FieldOptions & { type: ResolvedType }): void {
-    const getVar = this._getVarFunc(varName, options);
+/** Byte size of `value` when serialized as `type`. */
+export function sizeOf(type: Type, value: unknown): number {
+  const resolved = resolve(type);
+  if (typeof resolved === "string") return PRIMITIVE_TYPES[resolved].size;
+  let size = 0;
+  for (const field of resolved.fields) size += fieldSize(field, value as Obj);
+  return size;
+}
 
-    const { sizeFunc, writeFunc } = this;
-
-    const typeSize = options.type.sizeFunc;
-    const typeWrite = options.type.writeFunc;
-
-    this.sizeFunc = (obj) => typeSize(getVar(obj)) + sizeFunc(obj);
-
-    this.writeFunc = (obj, buf) => {
-      const offset = writeFunc(obj, buf);
-      return offset + typeWrite(getVar(obj), buf.subarray(offset));
-    };
-  }
-
-  fixedSizeNest(
-    varName: string,
-    options: FieldOptions & { length?: LengthOption },
-    type: ResolvedType,
-  ): void {
-    const getVar = this._getVarFunc(varName, options);
-
-    const { sizeFunc, writeFunc } = this;
-
-    const typeWrite = type.writeFunc;
-
-    if (options.length === undefined)
-      throw new Error("fixedSizeNest needs a length");
-    const getLength = getGetLengthFunc(options.length);
-
-    this.sizeFunc = (obj) => getLength(obj) + sizeFunc(obj);
-
-    this.writeFunc = (obj, buf) => {
-      const offset = writeFunc(obj, buf);
-      const written = typeWrite(getVar(obj), buf.subarray(offset));
-      const length = getLength(obj);
-
-      if (written > length) {
-        throw new Error("Nested type wrote too much");
+function fieldSize(field: Field, obj: Obj): number {
+  switch (field.kind) {
+    case "primitive":
+      return PRIMITIVE_TYPES[field.type].size;
+    case "bits":
+      return field.bytes;
+    case "string":
+      return encodeString(field, obj).size;
+    case "buffer":
+      return checkedBuffer(field, obj).length;
+    case "array": {
+      let size = 0;
+      for (const item of checkedItems(field, obj))
+        size += sizeOf(field.type, item);
+      return size;
+    }
+    case "nest": {
+      const size = sizeOf(field.type, field.load(obj));
+      if (field.length === undefined) return size;
+      const length = lengthOf(field.length, obj, field.name);
+      if (size > length) {
+        throw new Error(
+          `\`${field.name}\` needs ${size} bytes, more than its size ${length}`,
+        );
       }
-
-      return offset + length;
-    };
-  }
-
-  array(varName: string, options: ArrayParseOptions, type: ResolvedType): void {
-    // TODO check if passed array has acceptable length
-    let getVar = this._getVarFunc(varName, options) as (obj: Obj) => unknown[];
-
-    if (typeof options.key === "string") {
-      const plainVar = getVar as unknown as (obj: Obj) => Obj;
-      const { key } = options;
-      getVar = (obj) => {
-        const val = plainVar(obj);
-        return Object.keys(val).map((k) => {
-          if ((val[k] as Obj)[key] !== k) throw new Error("invalid mapping");
-          return val[k];
-        });
-      };
+      return length;
     }
+    case "choice":
+      return sizeOf(pick(field, tagOf(field.tag, obj)), field.load(obj));
+  }
+}
 
-    const { sizeFunc, writeFunc } = this;
+/** Writes `value` as `type` at `buf[offset]`; returns the offset after it. */
+export function write(
+  type: Type,
+  value: unknown,
+  buf: Buffer,
+  offset: number,
+): number {
+  const resolved = resolve(type);
+  if (typeof resolved === "string") {
+    return writePrimitive(resolved, buf, value, offset);
+  }
+  let o = offset;
+  for (const field of resolved.fields)
+    o = writeField(field, value as Obj, buf, o);
+  return o;
+}
 
-    const typeSize = type.sizeFunc;
-    const typeWrite = type.writeFunc;
-
-    this.sizeFunc = (obj) => {
-      const arr = getVar(obj);
-      let sum = 0;
-      for (let i = 0; i < arr.length; i++) {
-        sum += typeSize(arr[i]);
+function writeField(field: Field, obj: Obj, buf: Buffer, o: number): number {
+  switch (field.kind) {
+    case "primitive":
+      return writePrimitive(field.type, buf, field.load(obj), o);
+    case "bits":
+      buf.fill(0, o, o + field.bytes);
+      for (const bit of field.bits) {
+        writeBits(buf, o, bit.pos, bit.width, bit.load(obj) as number);
       }
-      return sum + sizeFunc(obj);
-    };
-
-    this.writeFunc = (obj, buf) => {
-      const arr = getVar(obj);
-      let offset = writeFunc(obj, buf);
-      for (let i = 0; i < arr.length; i++) {
-        offset += typeWrite(arr[i], buf.subarray(offset));
+      return o + field.bytes;
+    case "string": {
+      const { bytes, size } = encodeString(field, obj);
+      bytes.copy(buf, o);
+      buf.fill(0, o + bytes.length, o + size);
+      return o + size;
+    }
+    case "buffer":
+      return o + checkedBuffer(field, obj).copy(buf, o);
+    case "array": {
+      for (const item of checkedItems(field, obj)) {
+        o = write(field.type, item, buf, o);
       }
-      return offset;
-    };
-  }
-
-  choice(
-    varName: string,
-    options: FieldOptions,
-    getChoice: (obj: Obj) => ResolvedType,
-  ): void {
-    const getVar = this._getVarFunc(varName, options);
-
-    const { sizeFunc, writeFunc } = this;
-
-    this.sizeFunc = (obj) =>
-      getChoice(obj).sizeFunc(getVar(obj)) + sizeFunc(obj);
-
-    this.writeFunc = (obj, buf) => {
-      const offset = writeFunc(obj, buf);
-      return (
-        offset + getChoice(obj).writeFunc(getVar(obj), buf.subarray(offset))
-      );
-    };
-  }
-
-  buffer(varName: string, options: FieldOptions): void {
-    // TODO check for length
-    const getVar = this._getVarFunc(varName, options) as (obj: Obj) => Buffer;
-
-    const { sizeFunc, writeFunc } = this;
-
-    this.sizeFunc = (obj) => getVar(obj).length + sizeFunc(obj);
-
-    this.writeFunc = (obj, buf) => {
-      const offset = writeFunc(obj, buf);
-      return offset + getVar(obj).copy(buf, offset);
-    };
-  }
-
-  /** Writes a fixed-size primitive. */
-  primitive(
-    name: PrimitiveName,
-    varName: string,
-    options?: FieldOptions,
-  ): void {
-    const getVar = this._getVarFunc(varName, options);
-    const { size, write } = PRIMITIVE_TYPES[name];
-    const writeMethod = Buffer.prototype[write] as (
-      this: Buffer,
-      value: unknown,
-      offset: number,
-    ) => number;
-
-    // Add the size of the primitive
-    const { sizeFunc, writeFunc } = this;
-    this.sizeFunc = (obj) => size + sizeFunc(obj);
-
-    this.writeFunc = (obj, buf) => {
-      const offset = writeFunc(obj, buf);
-      return writeMethod.call(buf, getVar(obj), offset);
-    };
-  }
-
-  _processBitfield(reqs: BitRequest[], length: number): void {
-    const beforePrepareFunc = this.writeFunc;
-    this.writeFunc = function prepare(obj, buf) {
-      const offset = beforePrepareFunc(obj, buf);
-      buf[offset] = 0;
-      return offset;
-    };
-
-    let sum = 0;
-
-    // Write sum as a side effect
-    this.writeFunc = reqs.reduce((writeFunc, req) => {
-      const { i } = req;
-
-      const innerByteOffset = sum % 8;
-      sum += i; // SIDEEFFECT
-
-      const getVar = req.vars
-        .map(getGetVarFunc)
-        .reduce((p, n) => (obj) => n(p(obj) as Obj)) as (obj: Obj) => number;
-
-      return (obj: Obj, buf: Buffer) => {
-        let offset = writeFunc(obj, buf);
-        let val = getVar(obj);
-        let bitsWrittenInByte = innerByteOffset;
-        let remainingBitsToWrite = i;
-
-        while (remainingBitsToWrite > 0) {
-          /*
-           * Only consider first `shiftAmount` writable bits
-           * if `shiftAmount` is negative, there are bits left over
-           */
-          const shiftAmount = bitsWrittenInByte + remainingBitsToWrite - 8;
-          buf[offset] |=
-            shiftAmount < 0 ? val << -shiftAmount : val >> shiftAmount;
-
-          remainingBitsToWrite -= 8 - bitsWrittenInByte;
-
-          if (remainingBitsToWrite >= 0) {
-            val &= (1 << remainingBitsToWrite) - 1;
-            offset += 1;
-            buf[offset] = 0;
-            bitsWrittenInByte = 0;
-          }
-        }
-
-        return offset;
-      };
-    }, this.writeFunc);
-
-    if (length % 8) {
-      // If there is an incomplete byte, ensure we continue at next byte
-      const beforeCompleteFunc = this.writeFunc;
-      this.writeFunc = function complete(obj, buf) {
-        return 1 + beforeCompleteFunc(obj, buf);
-      };
+      return o;
     }
-
-    const { sizeFunc } = this;
-    const bytes = Math.ceil(length / 8);
-
-    this.sizeFunc = (obj) => bytes + sizeFunc(obj);
+    case "nest": {
+      // The size is checked by `sizeOf`; a fixed size is padded with zeros.
+      const end = write(field.type, field.load(obj), buf, o);
+      if (field.length === undefined) return end;
+      const length = lengthOf(field.length, obj, field.name);
+      buf.fill(0, end, o + length);
+      return o + length;
+    }
+    case "choice":
+      return write(pick(field, tagOf(field.tag, obj)), field.load(obj), buf, o);
   }
+}
 
-  private _getVarFunc(
-    varName: string,
-    options: FieldOptions | undefined,
-  ): Getter {
-    // To ensure getting a value is the same while reading & serializing
-    if (this.vars.has(varName)) throw new Error("duplicated var name");
-    this.vars.add(varName);
+function mismatch(
+  field: { name: string },
+  actual: string,
+  length: number,
+): Error {
+  return new Error(
+    `\`${field.name}\` has ${actual}, but its length is ${length}`,
+  );
+}
 
-    if (options?.formatter && !options.deformatter) {
-      throw new Error("formats need to be reversible");
+/** The bytes of a string, and the size it takes (with padding or the terminating zero). */
+function encodeString(
+  field: Extract<Field, { kind: "string" }>,
+  obj: Obj,
+): { bytes: Buffer; size: number } {
+  const bytes = Buffer.from(field.load(obj) as string, field.encoding);
+  if (field.zeroTerminated) {
+    const max = lengthOf(field.length, obj, field.name);
+    if (bytes.includes(0)) {
+      throw new Error(`\`${field.name}\` contains a zero byte`);
     }
-
-    if (options?.deformatter) {
-      const deformatter = options.deformatter as (
-        value: unknown,
-        obj: Obj,
-      ) => unknown;
-
-      if (options.flatten) {
-        return deformatter as unknown as Getter;
-      }
-
-      return (obj) => deformatter(obj[varName], obj);
-    }
-
-    if (options?.flatten) {
-      return (obj) => obj;
-    }
-
-    return getGetVarFunc(varName);
+    if (bytes.length > max) throw mismatch(field, `${bytes.length} bytes`, max);
+    return { bytes, size: bytes.length < max ? bytes.length + 1 : max };
   }
+  if (field.length === Infinity) return { bytes, size: bytes.length };
+  const length = lengthOf(field.length, obj, field.name);
+  if (bytes.length > length) {
+    throw mismatch(field, `${bytes.length} bytes`, length);
+  }
+  return { bytes, size: length };
+}
+
+function checkedBuffer(
+  field: Extract<Field, { kind: "buffer" }>,
+  obj: Obj,
+): Buffer {
+  const value = field.load(obj) as Buffer;
+  const length = lengthOf(field.length, obj, field.name);
+  if (length !== Infinity && value.length !== length) {
+    throw mismatch(field, `${value.length} bytes`, length);
+  }
+  return value;
+}
+
+function checkedItems(
+  field: Extract<Field, { kind: "array" }>,
+  obj: Obj,
+): unknown[] {
+  const items = field.load(obj) as unknown[];
+  const { until } = field;
+  if (until === "eof") return items;
+  const length = lengthOf(field.length, obj, field.name);
+  if (until === undefined) {
+    if (items.length !== length) {
+      throw mismatch(field, `${items.length} items`, length);
+    }
+    return items;
+  }
+  // Parsing stops at the first item passing `readUntil`, or after `length` items.
+  const last = items.findIndex((item) => until(item as never));
+  const count = Math.min(last < 0 ? Infinity : last + 1, length);
+  if (items.length !== count) {
+    throw new Error(
+      count === Infinity
+        ? `\`${field.name}\` has no item passing readUntil`
+        : `\`${field.name}\` has ${items.length} items, but parsing stops after ${count}`,
+    );
+  }
+  return items;
 }
