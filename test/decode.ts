@@ -207,7 +207,7 @@ describe("Errors", () => {
             .decode(hex("00")),
         /`n` is not a field before `a`/,
       ],
-      [() => bin().bits("x", 33 as never), /`x` has 33 bits/],
+      [() => bin().bits("x", 54 as never), /`x` has 54 bits/],
       [
         () =>
           bin()

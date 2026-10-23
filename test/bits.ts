@@ -23,7 +23,7 @@ describe("Bit fields", () => {
     assert.deepEqual(parser.encode(value), hex("21 43"));
   });
 
-  it("have up to 32 bits, at any position", () => {
+  it("have up to 53 bits, at any position", () => {
     for (const order of ["msb", "lsb"] as const) {
       const parser = bin({ bitOrder: order })
         .bits("a", 3)
@@ -32,7 +32,11 @@ describe("Bit fields", () => {
         .bits("d", 9)
         .bits("e", 7)
         .bits("f", 8)
-        .bits("g", 1);
+        .bits("g", 1)
+        .bits("h", 53)
+        .bits("i", 33)
+        .bits("j", 48)
+        .bits("k", 7);
       const value = {
         a: 5,
         b: 0xfedcba98,
@@ -41,15 +45,43 @@ describe("Bit fields", () => {
         e: 0x2a,
         f: 0xff,
         g: 1,
+        h: Number.MAX_SAFE_INTEGER - 0x5a5a5a5a,
+        i: 2 ** 32 + 0x89abcdef,
+        j: 0xfedc_ba98_7654,
+        k: 0x41,
       };
       const bytes = parser.encode(value);
-      assert.equal(bytes.length, 12);
+      assert.equal(bytes.length, 29);
       assert.deepEqual(parser.decode(bytes), value, order);
     }
     assert.deepEqual(
       bin().bits("a", 32).bits("b", 32).decode(hex("fffffffe 89abcdef")),
       { a: 0xfffffffe, b: 0x89abcdef },
     );
+    // Issue #12.
+    assert.deepEqual(bin().bits("a", 48).decode(hex("ffffffffffff")), {
+      a: 2 ** 48 - 1,
+    });
+    assert.deepEqual(
+      bin().bits("a", 4).bits("b", 44).decode(hex("0123456789ab")),
+      { a: 0, b: 0x123456789ab },
+    );
+    assert.deepEqual(
+      bin({ bitOrder: "lsb" }).bits("a", 4).bits("b", 44).encode({
+        a: 0xb,
+        b: 0x123456789a,
+      }),
+      hex("ab 89 67 45 23 01"),
+    );
+    for (const a of [2 ** 53, -1, 0.5, 2n])
+      assert.throws(
+        () =>
+          bin()
+            .bits("a", 53)
+            .encode({ a: a as number }),
+        /expected an unsigned integer of 53 bits/,
+      );
+    assert.throws(() => bin().bits("a", 54 as 53), /has 54 bits, not 1 to 53/);
   });
 
   it("are followed by numbers at the next byte", () => {

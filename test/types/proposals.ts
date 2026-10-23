@@ -141,7 +141,7 @@ bin().merge(
 );
 export const bit32 = bin().bits("a", 3).bits("wide", 32).bits("next", 24);
 // @ts-expect-error width range
-bin().bits("a", 33);
+bin().bits("a", 54);
 export const limit = bin()
   .u8("limit")
   .field("text", string({ terminator: 0, max: (o) => o.limit }));

@@ -152,8 +152,10 @@ describe("Seeded differential schemas", () => {
         const name = `f${i}`;
         const kind = rnd(4);
         if (kind === 0) {
-          const width = 1 + rnd(32);
-          const value = rnd(2 ** Math.min(width, 12));
+          const width = 1 + rnd(53);
+          // Random top bits (all of them, up to 32).
+          const value =
+            rnd(2 ** Math.min(width, 32)) * 2 ** Math.max(width - 32, 0);
           codec = codec.bits(name, width);
           input[name] = output[name] = value;
           desc.push(`bits${width}`);

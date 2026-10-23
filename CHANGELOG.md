@@ -54,7 +54,7 @@ Formats keep their bytes with the rewrites below (except where noted), but not t
 - Parsers can read fields of the parser they are added to: `bin<{ length: number }>()`.
 - `optional(flag, codec)` and `when(condition, codec)` for values that may be absent; `lazy` for recursive formats; `custom` for formats of your own; `fail` for unsupported parts.
 - Strings: padding, terminators of any byte, and lengths of any kind.
-- 64-bit integers, as `bigint`.
+- 64-bit integers, as `bigint`; bit fields of up to 53 bits (#12).
 - Errors give the path of the field (e.g. `items[3].name`) and the offset.
 - Streams decode values spanning chunks without starting over, work with any async iterable, such as Node.js and web streams, and close their source when stopped.
 - binopsy works in browsers: it uses `Uint8Array`s and `DataView`s instead of `Buffer`s.

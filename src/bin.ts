@@ -202,7 +202,7 @@ type NumberFields<T, I, Ctx> = {
   >;
 };
 // prettier-ignore
-type BitWidth = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 | 32;
+type BitWidth = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 | 32 | 33 | 34 | 35 | 36 | 37 | 38 | 39 | 40 | 41 | 42 | 43 | 44 | 45 | 46 | 47 | 48 | 49 | 50 | 51 | 52 | 53;
 
 /** Names surely picked (not unions of names). */
 type Certain<Names extends readonly string[]> = number extends Names["length"]
@@ -267,7 +267,7 @@ export interface Struct<T, I = T, Ctx = unknown> extends Codec<
  */
 export interface Bin<T, I = T, Ctx = unknown>
   extends Struct<T, I, Ctx>, NumberFields<T, I, Ctx> {
-  /** Adds a field of `width` (1 to 32) bits; bit fields that follow each other share their bytes. */
+  /** Adds a field of `width` (1 to 53) bits; bit fields that follow each other share their bytes. */
   bits<const K extends string>(
     name: K,
     width: BitWidth,
@@ -480,8 +480,8 @@ class Parser extends Codec<Obj> {
   }
 
   bits(name: string, width: number): Parser {
-    if (!(Number.isInteger(width) && width >= 1 && width <= 32))
-      throw new RangeError(`\`${name}\` has ${width} bits, not 1 to 32`);
+    if (!(Number.isInteger(width) && width >= 1 && width <= 53))
+      throw new RangeError(`\`${name}\` has ${width} bits, not 1 to 53`);
     return this.add([{ kind: "bits", name, width, order: this.order }]);
   }
 
@@ -825,20 +825,34 @@ class Parser extends Codec<Obj> {
       );
       g.fields.set(name, v);
       g.check(
-        width === 32
-          ? `typeof ${v} !== "number" || ${v} >>> 0 !== ${v}`
-          : `typeof ${v} !== "number" || (${v} & ${2 ** width - 1}) !== ${v}`,
+        width > 32
+          ? `!(Number.isInteger(${v}) && ${v} >= 0 && ${v} <= ${2 ** width - 1})`
+          : width === 32
+            ? `typeof ${v} !== "number" || ${v} >>> 0 !== ${v}`
+            : `typeof ${v} !== "number" || (${v} & ${2 ** width - 1}) !== ${v}`,
         "invalid",
         `"expected an unsigned integer of ${width} bits, got " + String(${v})`,
       );
-      // The parts of the value in each byte it is in.
-      for (let j = offset >> 3; j <= (offset + width - 1) >> 3; j++) {
-        const shift =
-          order === "msb" ? 8 * j + 8 - (offset + width) : offset - 8 * j;
-        const part = shift >= 0 ? `${v} << ${shift}` : `${v} >>> ${-shift}`;
-        bytes[j].push(`(${part}) & 255`);
+      // Wider values in two parts: the bits above the low 32, and the low 32.
+      const pieces =
+        width > 32
+          ? [
+              { v: g.let(`Math.floor(${v} / ${2 ** 32})`), width: width - 32 },
+              { v: g.let(`${v} >>> 0`), width: 32 },
+            ]
+          : [{ v, width }];
+      if (order === "lsb") pieces.reverse();
+      for (const piece of pieces) {
+        // The parts of the piece in each byte it is in.
+        const end = offset + piece.width;
+        for (let j = offset >> 3; j <= (end - 1) >> 3; j++) {
+          const shift = order === "msb" ? 8 * j + 8 - end : offset - 8 * j;
+          const part =
+            shift >= 0 ? `${piece.v} << ${shift}` : `${piece.v} >>> ${-shift}`;
+          bytes[j].push(`(${part}) & 255`);
+        }
+        offset = end;
       }
-      offset += width;
     }
     g.field = undefined;
     g.need(bytes.length);
@@ -938,6 +952,12 @@ function extract(
   offset: number,
   width: number,
 ): string {
+  if (width > 32) {
+    // The bits above the low 32 (first in msb order), times 2 ** 32.
+    const high = order === "msb" ? offset : offset + 32;
+    const low = order === "msb" ? offset + width - 32 : offset;
+    return `(${extract(at, order, high, width - 32)}) * ${2 ** 32} + (${extract(at, order, low, 32)})`;
+  }
   const first = offset >> 3;
   const span = ((offset + width - 1) >> 3) - first + 1;
   const byte = (k: number) => `buf[${at} + ${first + k}]`;

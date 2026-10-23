@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  array,
   bin,
   DecodeError,
   literal,
@@ -81,6 +82,24 @@ describe("Matches", () => {
       kind: 2,
       tail: "x",
     });
+  });
+
+  it("decode parser cases ending with empty arrays (issue #6)", async () => {
+    const Inner = bin()
+      .field("airportCode", string(3))
+      .u8("count")
+      .field("subs", array(bin().u8("val"), "count"));
+    const Outer = bin()
+      .u8("type")
+      .field("inner", match("type").case(1, Inner).case(2, Inner));
+    const value = {
+      type: 1,
+      inner: { airportCode: "BER", count: 0, subs: [] },
+    } as const;
+    const bytes = hex("01 424552 00");
+    assert.deepEqual(Outer.encode(value), bytes);
+    assert.deepEqual(Outer.decode(bytes), value);
+    assert.deepEqual(await collect(Outer, bytewise(bytes)), [value]);
   });
 
   it("locate errors in the fields of cases without the match", () => {

@@ -31,7 +31,7 @@ Types are inferred: no annotations are needed, and mistakes (a misspelled field,
 `bin()` is an empty parser; each method returns a new parser with a field added, typed from the fields before it.
 
 - `.u8(name)`, `.i16le(name)`, … add a number field (one method for each number codec below).
-- `.bits(name, width)` adds a field of 1 to 32 bits (see [bit fields](#bit-fields)).
+- `.bits(name, width)` adds a field of 1 to 53 bits (see [bit fields](#bit-fields)).
 - `.field(name, codec)` adds a field of any codec, including other parsers and [matches](#matches).
 - `.merge(parser)` adds the fields of another parser (or of one of several: `cond ? A : B` gives a union), or of the case of a [match](#matches) of parsers.
 - `.pipe(f)` applies a function adding fields, for groups of fields used in several parsers.
@@ -128,7 +128,7 @@ Case values are literals (numbers, strings, bigints or booleans: `1` and `"1"` a
 
 ### Bit fields
 
-`bin().bits("a", 3).bits("b", 5)` decodes `{ a: number; b: number }` from one byte. Bit fields that follow each other share their bytes (they are padded to whole bytes, with zeros when encoding); other fields start at the next byte. By default the first field takes the most significant bits of the first byte; with `bin({ bitOrder: "lsb" })`, the least significant ones.
+`bin().bits("a", 3).bits("b", 5)` decodes `{ a: number; b: number }` from one byte. Fields have up to 53 bits (the integers numbers hold exactly). Bit fields that follow each other share their bytes (they are padded to whole bytes, with zeros when encoding); other fields start at the next byte. By default the first field takes the most significant bits of the first byte; with `bin({ bitOrder: "lsb" })`, the least significant ones.
 
 The bit fields of a merged parser continue the run (if they have the same bit order: adjoining runs of different orders throw); those of nested parsers, of merged matches, and of merged parsers that compute or pick fields start at a byte.
 
