@@ -49,7 +49,7 @@
     "no-else-return": 2
   },
   "root": true,
-  "ignorePatterns": ["lib/", "node_modules/"],
+  "ignorePatterns": ["lib/", "node_modules/", "test/package/"],
   "overrides": [
     {
       "files": ["*.ts"],
@@ -65,7 +65,8 @@
         "@typescript-eslint/no-unused-vars": [
           2,
           {
-            "argsIgnorePattern": "^_"
+            "argsIgnorePattern": "^_",
+            "varsIgnorePattern": "^_"
           }
         ],
         "prefer-destructuring": 0

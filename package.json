@@ -2,7 +2,7 @@
   "name": "binopsy",
   "author": "Felix Boehm <me@feedic.com>",
   "version": "0.0.0",
-  "description": "Reimplementation of binary-parser supporting serialization and streaming",
+  "description": "Typed binary codecs: compiled decoders and encoders, partial decoding and streams",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
@@ -17,11 +17,9 @@
     "src",
     "CHANGELOG.md"
   ],
-  "dependencies": {
-    "@types/node": "*"
-  },
   "devDependencies": {
     "@types/mocha": "^10.0.10",
+    "@types/node": "^26.6.4",
     "@typescript-eslint/eslint-plugin": "^8.71.1",
     "@typescript-eslint/parser": "^8.71.1",
     "eslint": "^8.57.1",
@@ -34,7 +32,7 @@
     "build": "tsc -p tsconfig.build.json",
     "prepack": "npm run build",
     "test": "mocha",
-    "lint": "eslint . && tsc",
+    "lint": "eslint . && tsc && npm run build && tsc -p test/package",
     "format": "prettier --write ."
   },
   "keywords": [

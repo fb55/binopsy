@@ -1,63 +1,80 @@
 import assert from "node:assert/strict";
-import { Bin } from "../src/index.ts";
-import { collect, hex, Str } from "./helpers.ts";
-
-/** Bytes from binary digits (spaces are ignored). */
-function bits(text: string): Buffer {
-  const digits = text.replace(/\s/g, "");
-  return Buffer.from(digits.match(/.{8}/g)!.map((byte) => parseInt(byte, 2)));
-}
+import {
+  array,
+  bin,
+  bytes,
+  i16le,
+  i32le,
+  lazy,
+  literal,
+  map,
+  match,
+  optional,
+  Reader,
+  refine,
+  sized,
+  string,
+  u16be,
+  u16le,
+  u32be,
+  u8,
+  when,
+  type Codec,
+} from "../src/index.ts";
+import { bytewise, collect, hex } from "./helpers.ts";
 
 interface Case {
   name: string;
-  parser: Bin;
-  input: Buffer;
-  value: object;
+  codec: Codec<unknown, never>;
+  bytes: Uint8Array;
+  value: unknown;
 }
 
-function test<T extends object>(
+/** A case: `codec` decodes `bytes` (hex) to `value`, and encodes `value` to `bytes`. */
+function test<O>(
   name: string,
-  parser: Bin<T>,
-  input: string | Buffer,
-  value: NoInfer<T>,
+  codec: Codec<O, O>,
+  bytes: string,
+  value: NoInfer<O>,
 ): Case {
   return {
     name,
-    parser: parser as unknown as Bin,
-    input: typeof input === "string" ? hex(input) : input,
+    codec: codec as Codec<unknown, never>,
+    bytes: hex(bytes),
     value,
   };
 }
 
-const Pair = Bin.start().uint8("key").int16le("value");
-
-class Point {
-  x = 0;
-}
+const Pair = bin().u8("key").i16le("value");
 
 interface Tree {
   count: number;
   children: Tree[];
 }
-const Tree: Bin<Tree> = Bin.start()
-  .uint8("count")
-  .array("children", { type: Bin.lazy(() => Tree), length: "count" });
+const Tree: Codec<Tree> = bin()
+  .u8("count")
+  .field(
+    "children",
+    array(
+      lazy(() => Tree),
+      "count",
+    ),
+  );
 
 const cases: Case[] = [
-  // Primitives
   test(
     "integers",
-    Bin.start()
-      .uint8("a")
-      .int8("b")
-      .uint16le("c")
-      .uint16be("d")
-      .int16le("e")
-      .int16be("f")
-      .uint32le("g")
-      .uint32be("h")
-      .int32le("i")
-      .int32be("j"),
+    bin()
+      .u8("a")
+      .i8("b")
+      .u16le("c")
+      .u16be("d")
+      .i16le("e")
+      .i16be("f")
+      .u32le("g")
+      .u32be("h")
+      .i32le("i")
+      .i32be("j"),
     "ff ff dcfe fedc feff fffe efcdab89 89abcdef eb32a4f8 fffffffe",
     {
       a: 255,
@@ -73,313 +90,145 @@ const cases: Case[] = [
     },
   ),
   test(
-    "floats",
-    Bin.start().floatbe("a").doublele("b"),
-    "3fc00000 000000000000d0bf",
-    { a: 1.5, b: -0.25 },
+    "floats and 64-bit integers",
+    bin().f32be("a").f64le("b").u64le("c").i64be("d"),
+    "3fc00000 000000000000d0bf ffffffffffffffff 8000000000000000",
+    { a: 1.5, b: -0.25, c: 2n ** 64n - 1n, d: -(2n ** 63n) },
   ),
-  test(
-    "64-bit integers as bigints",
-    Bin.start().uint64le("a").int64be("b"),
-    "ffffffffffffffff 8000000000000000",
-    { a: 2n ** 64n - 1n, b: -(2n ** 63n) },
-  ),
-  test(
-    "endianness of unsuffixed methods",
-    Bin.start()
-      .endianness("little")
-      .uint16("a")
-      .int32("b")
-      .uint64("c")
-      .double("d")
-      .endianness("big")
-      .uint16("e"),
-    "0100 feffffff 0300000000000000 000000000000f83f 0001",
-    { a: 1, b: -2, c: 3n, d: 1.5, e: 1 },
-  ),
+  test("a primitive on its own", u32be, "01020304", 0x01020304),
 
-  // Bit fields
   test(
-    "bit fields, big endian",
-    Bin.start().bit1("a").bit2("b").bit4("c").bit1("d"),
-    bits("1 10 1010 0"),
-    { a: 1, b: 2, c: 10, d: 0 },
+    "strings of a fixed size, up to a zero byte",
+    bin()
+      .field("a", string(5, { terminator: 0 }))
+      .field("b", string(3, { encoding: "latin1" }))
+      .field("c", string(5, { terminator: 0 })),
+    "6869000000 e9e9e9 c3bce282ac",
+    { a: "hi", b: "ééé", c: "ü€" },
   ),
   test(
-    "bit fields, little endian (later fields first)",
-    Bin.start().endianness("little").bit1("a").bit2("b").bit4("c").bit1("d"),
-    bits("1 10 1010 0"),
-    { a: 0, b: 2, c: 10, d: 1 },
+    "strings with lengths read before them, from fields and computed",
+    bin()
+      .field("a", string(u8))
+      .u8("n")
+      .field("b", string("n"))
+      .field(
+        "c",
+        string((o) => o.n * 2),
+      ),
+    "02 6869 01 61 0062",
+    { a: "hi", n: 1, b: "a", c: "\0b" },
   ),
-  test(
-    "bit fields across bytes",
-    Bin.start().bit3("a").bit9("b").bit4("c"),
-    bits("101 111000111 0111"),
-    { a: 5, b: 455, c: 7 },
-  ),
-  test(
-    "bit fields across bytes, little endian",
-    Bin.start().endianness("little").bit3("a").bit9("b").bit4("c"),
-    bits("101 111000111 0111"),
-    { a: 7, b: 398, c: 11 },
-  ),
-  test(
-    "little-endian bit fields are stored in order",
-    Bin.start()
-      .endianness("little")
-      .bit4("a")
-      .bit4("b", {
-        formatter(b) {
-          return b + this.a;
-        },
-        deformatter: (b, obj) => b - obj.a,
-      }),
-    "21",
-    { a: 1, b: 3 },
-  ),
-  test(
-    "bit fields keep the byte order of their definition",
-    Bin.start().bit4("a").bit4("b").endianness("little").uint16("c"),
-    "12 0300",
-    { a: 1, b: 2, c: 3 },
-  ),
-  test(
-    "bit fields with padding, followed by a byte",
-    Bin.start().bit1("a").bit24("b").bit2("c").uint8("d"),
-    bits("1 101010101010101010101010 01 00000 00000100"),
-    { a: 1, b: 0xaaaaaa, c: 1, d: 4 },
-  ),
-  test(
-    "unsigned 32-bit fields in runs longer than 53 bits",
-    Bin.start().bit32("a").bit32("b"),
-    "fffffffe 89abcdef",
-    { a: 0xfffffffe, b: 0x89abcdef },
-  ),
-  test(
-    "bit fields of nested parsers are their own run",
-    Bin.start()
-      .bit1("a")
-      .nest("x", { type: Bin.start().bit2("b") })
-      .bit1("c"),
-    bits("1 0000000 10 000000 1 0000000"),
-    { a: 1, x: { b: 2 }, c: 1 },
-  ),
-  test(
-    "bit fields before a nested parser",
-    Bin.start().bit4("a").bit4("b").nest("x", { type: Pair }),
-    "12 01 0200",
-    { a: 1, b: 2, x: { key: 1, value: 2 } },
-  ),
-
-  // Strings
-  test(
-    "fixed-length strings",
-    Bin.start()
-      .string("a", { length: 5, encoding: "ascii" })
-      .string("b", { length: 4, encoding: "hex" })
-      .string("c", { length: 5 }),
-    Buffer.concat([Buffer.from("hello"), hex("cafebabe"), Buffer.from("ü€")]),
-    { a: "hello", b: "cafebabe", c: "ü€" },
-  ),
-  test("length from a field", Str, "03 616263", { len: 3, text: "abc" }),
   test(
     "zero-terminated strings",
-    Bin.start()
-      .string("a", { zeroTerminated: true })
-      .string("b", { zeroTerminated: true })
-      .uint8("c"),
-    Buffer.from("Müller\0\0\x07"),
-    { a: "Müller", b: "", c: 7 },
-  ),
-  test(
-    "zero-terminated strings with a maximum length",
-    Bin.start()
-      .string("a", { length: 5, zeroTerminated: true })
-      .string("b", { length: 5, zeroTerminated: true })
-      .string("c", { length: 5, zeroTerminated: true }),
-    Buffer.from("abc\0defghij\0"),
-    { a: "abc", b: "defgh", c: "ij" },
-  ),
-  test(
-    "stripNull",
-    Bin.start().string("a", { length: 6, stripNull: true }),
-    Buffer.from("test\0\0"),
-    { a: "test" },
-  ),
-  test(
-    "strings up to the end of the input",
-    Bin.start().uint8("a").string("b", { length: Infinity }),
-    Buffer.from("\x01rest"),
-    { a: 1, b: "rest" },
+    bin()
+      .field("a", string({ terminator: 0 }))
+      .field("b", string({ terminator: 0 }))
+      .u8("c"),
+    "4dc3bc6c6c657200 00 07",
+    {
+      a: "Müller",
+      b: "",
+      c: 7,
+    },
   ),
 
-  // Buffers
   test(
-    "buffers",
-    Bin.start()
-      .uint8("len")
-      .buffer("a", { length: "len" })
-      .buffer("b", { readUntil: "eof" }),
-    "02 dead beef",
-    { len: 2, a: hex("dead"), b: hex("beef") },
+    "zero-terminated strings of a maximum size",
+    bin()
+      .field("a", string({ terminator: 0, max: 4 }))
+      .field("b", string({ terminator: 0, max: 4 })),
+    "616200 63646566",
+    { a: "ab", b: "cdef" },
+  ),
+  test(
+    "strings in other encodings",
+    bin()
+      .field("a", string(4, { encoding: "utf16le", terminator: 0 }))
+      .field("b", string(u8, { encoding: "ascii" }))
+      .field("c", string({ terminator: 0, encoding: "utf16le" })),
+    "68000000 02 6869 e900 0000",
+    { a: "h", b: "hi", c: "é" },
+  ),
+  test("strings up to the end of the input", string(Infinity), "616263", "abc"),
+
+  test(
+    "bytes",
+    bin()
+      .field("a", bytes(2))
+      .field("b", bytes(u8))
+      .u8("n")
+      .field("c", bytes("n")),
+    "dead 01be 02 beef",
+    { a: hex("dead"), b: hex("be"), n: 2, c: hex("beef") },
   ),
 
-  // Arrays
   test(
     "arrays of primitives and parsers",
-    Bin.start()
-      .uint8("n")
-      .array("a", { type: "int16le", length: "n" })
-      .array("b", { type: Pair, length: 2 })
-      .array("c", { type: "uint8", length: 0 }),
-    "02 ffff 0100 01 0200 02 feff",
+    bin()
+      .field("a", array(i16le, 2))
+      .field("b", array(Pair, u8))
+      .u8("n")
+      .field("c", array(u8, "n"))
+      .field("d", array(u8, 0)),
+    "ffff 0100 02 01 0200 02 feff 01 07",
     {
-      n: 2,
       a: [-1, 1],
       b: [
         { key: 1, value: 2 },
         { key: 2, value: -2 },
       ],
-      c: [],
+      n: 1,
+      c: [7],
+      d: [],
     },
   ),
   test(
-    "arrays of arrays",
-    Bin.start().array("rows", {
-      type: Bin.start()
-        .uint8("n")
-        .array("cols", { type: "uint8", length: "n" }),
-      length: 2,
-    }),
-    "02 0102 00",
-    {
-      rows: [
-        { n: 2, cols: [1, 2] },
-        { n: 0, cols: [] },
-      ],
-    },
+    "arrays of arrays and strings",
+    bin()
+      .field("rows", array(array(u8, u8), 2))
+      .field("names", array(string(u8), u8)),
+    "02 0102 00 02 01 61 00",
+    { rows: [[1, 2], []], names: ["a", ""] },
   ),
+
   test(
     "arrays up to the end of the input",
-    Bin.start()
-      .uint8("n")
-      .array("a", { type: Pair, length: "n" })
-      .array("b", { type: "uint16le", length: Infinity }),
-    "01 01 0200 0300 0400",
-    { n: 1, a: [{ key: 1, value: 2 }], b: [3, 4] },
-  ),
-  test(
-    "arrays of parsers up to the end of the input",
-    Bin.start().array("a", { type: Pair, readUntil: "eof" }),
-    "01 0200 02 0300",
-    {
-      a: [
-        { key: 1, value: 2 },
-        { key: 2, value: 3 },
-      ],
-    },
+    bin().u8("n").field("rest", array(u16le, Infinity)),
+    "01 0200 0300",
+    { n: 1, rest: [2, 3] },
   ),
   test(
     "arrays up to an item",
-    Bin.start()
-      .uint8("b")
-      .array("a", { type: "uint8", readUntil: (item) => item === 0 }),
-    "07 ff 01 00",
-    { b: 7, a: [255, 1, 0] },
-  ),
-  test(
-    "arrays keyed by a field of their items",
-    Bin.start().array("a", { type: Str, length: 2, key: "text" }),
-    "01 61 02 6263",
-    { a: { a: { len: 1, text: "a" }, bc: { len: 2, text: "bc" } } },
-  ),
-  test(
-    "arrays keyed by a number",
-    Bin.start().array("a", { type: Pair, length: 2, key: "key" }),
-    "01 0200 02 0300",
-    {
-      a: {
-        1: { key: 1, value: 2 },
-        2: { key: 2, value: 3 },
-      },
-    },
-  ),
-  test(
-    "arrays keyed by `__proto__`",
-    Bin.start().array("a", { type: Str, length: 1, key: "text" }),
-    Buffer.from("\x09__proto__"),
-    { a: Object.fromEntries([["__proto__", { len: 9, text: "__proto__" }]]) },
+    bin()
+      .field("a", array(u8, { until: (v) => v === 0 }))
+      .u8("b"),
+    "07 ff 00 09",
+    { a: [7, 255, 0], b: 9 },
   ),
 
-  // Nesting
   test(
-    "nested parsers",
-    Bin.start().nest("a", { type: Str }).nest("b", { type: "int8" }),
-    "01 61 ff",
-    { a: { len: 1, text: "a" }, b: -1 },
+    "values in regions of a size",
+    bin()
+      .field("a", sized(4, bin().u8("x")))
+      .field("b", sized(u16le, string(Infinity)))
+      .u8("n")
+      .field("c", sized("n", array(u8, Infinity))),
+    "01000000 0300 616263 02 0506",
+    { a: { x: 1 }, b: "abc", n: 2, c: [5, 6] },
   ),
   test(
-    "flattened formatted values",
-    Bin.start()
-      .nest("s", {
-        type: Str,
-        flatten: true,
-        formatter: (s) => ({ label: s.text }),
-        deformatter: ({ label }) => ({
-          len: Buffer.byteLength(label),
-          text: label,
-        }),
-      })
-      .nest("n", {
-        type: "uint8",
-        flatten: true,
-        formatter: (n) => ({ double: n * 2 }),
-        deformatter: ({ double }) => double / 2,
-      }),
-    "02 6869 05",
-    { label: "hi", double: 10 },
+    "bytes up to the end of the input",
+    sized(2, bytes(Infinity)),
+    "dead",
+    hex("dead"),
   ),
+
   test(
-    "flattened parsers",
-    Bin.start()
-      .nest("a", { type: Str, flatten: true })
-      .fixedSizeNest("b", { type: Pair, length: 4, flatten: true }),
-    "01 61 02 0300 00",
-    { len: 1, text: "a", key: 2, value: 3 },
-  ),
-  test(
-    "fixed-size nesting with padding",
-    Bin.start()
-      .fixedSizeNest("a", { type: "int8", length: 2 })
-      .fixedSizeNest("b", {
-        type: Bin.start().string("text", { length: Infinity }),
-        length: 3,
-      })
-      .uint8("c"),
-    "ff 00 616263 09",
-    { a: -1, b: { text: "abc" }, c: 9 },
-  ),
-  test(
-    "objects of a class",
-    Bin.start()
-      .create(Point)
-      .uint8("x")
-      .nest("p", { type: Bin.start().create(Point).uint8("x") }),
-    "03 04",
-    Object.assign(new Point(), {
-      x: 3,
-      p: Object.assign(new Point(), { x: 4 }),
-    }),
-  ),
-  test(
-    "bit fields stay one run when the parser is used in between",
-    (() => {
-      const parser = Bin.start().bit4("a");
-      parser.sizeOf();
-      return parser.bit4("b");
-    })(),
-    "12",
-    { a: 1, b: 2 },
+    "nested and merged parsers",
+    bin().field("a", Pair).merge(bin().u8("b")).field("c", bin()),
+    "01 0200 03",
+    { a: { key: 1, value: 2 }, b: 3, c: {} },
   ),
   test("recursive parsers", Tree, "02 01 00 00", {
     count: 2,
@@ -389,121 +238,116 @@ const cases: Case[] = [
     ],
   }),
 
-  // Choices
   test(
-    "choices",
-    Bin.start()
-      .uint8("tag")
-      .choice("a", {
-        tag: "tag",
-        choices: { 0: "int32le", 1: Str },
-        defaultChoice: "uint8",
-      })
-      .choice("b", {
-        tag(obj) {
-          return obj.tag === 1 ? "x" : "y";
-        },
-        choices: { x: "uint8", y: "int16be" },
-      }),
-    "01 02 6162 07",
-    { tag: 1, a: { len: 2, text: "ab" }, b: 7 },
+    "matches on number tags",
+    bin()
+      .u8("tag")
+      .field("value", match("tag").case(0, i32le).case(1, Pair).case(2, bin()))
+      .u8("after"),
+    "01 05 0600 07",
+    { tag: 1, value: { key: 5, value: 6 }, after: 7 },
   ),
   test(
-    "default choices",
-    Bin.start()
-      .uint8("tag")
-      .choice("a", {
-        tag: "tag",
-        choices: { 0: "int32le" },
-        defaultChoice: "uint8",
-      })
-      .uint8("b"),
-    "05 ff 01",
-    { tag: 5, a: 255, b: 1 },
-  ),
-  test(
-    "flattened choices",
-    Bin.start()
-      .uint8("tag")
-      .choice("a", {
-        tag: "tag",
-        choices: { 1: Str, 2: Pair },
-        flatten: true,
-      }),
-    "02 03 0400",
-    { tag: 2, key: 3, value: 4 },
+    "matches on string tags",
+    bin()
+      .field("tag", string(1))
+      .field("value", match("tag").case("a", u8).case("1", u16be)),
+    "31 0102",
+    { tag: "1", value: 0x0102 },
   ),
 
-  // Options
   test(
-    "formatters and deformatters",
-    Bin.start()
-      .uint8("a", {
-        formatter: (v) => v === 1,
-        deformatter: (v) => (v ? 1 : 0),
-      })
-      .bit4("b", { formatter: (v) => v * 10, deformatter: (v) => v / 10 })
-      .bit4("c")
-      .array("ip", {
-        type: "uint8",
-        length: 4,
-        formatter: (bytes) => bytes.join("."),
-        deformatter: (ip) => ip.split(".").map(Number),
-      })
-      .nest("name", {
-        type: Str,
-        formatter: (s) => s.text,
-        deformatter: (text) => ({ len: Buffer.byteLength(text), text }),
-      }),
-    "01 32 0a000001 02 6869",
-    { a: true, b: 30, c: 2, ip: "10.0.0.1", name: "hi" },
+    "matches with a default case, and on computed tags",
+    bin()
+      .u8("tag")
+      .field("v", match("tag").case(1, u8).otherwise(u16le))
+      .u8("x")
+      .field(
+        "w",
+        match((o: { x: number }) => (o.x > 5 ? "big" : "small"))
+          .case("big", u16le)
+          .case("small", u8),
+      ),
+    "02 0300 09 0400",
+    { tag: 2, v: 3, x: 9, w: 4 },
+  ),
+
+  test(
+    "bit fields, most significant bit first",
+    bin().field("a", bin().bits("x", 1).bits("y", 2).bits("z", 5)).u8("b"),
+    "d4 ff",
+    { a: { x: 1, y: 2, z: 20 }, b: 255 },
   ),
   test(
-    "asserts",
-    Bin.start()
-      .uint8("magic", { assert: 0x42 })
-      .uint8("n", { assert: (v) => v < 10 })
-      .int64be("big", { assert: -1n }),
-    "42 09 ffffffffffffffff",
-    { magic: 0x42, n: 9, big: -1n },
+    "bit fields, least significant bit first",
+    bin().field(
+      "a",
+      bin({ bitOrder: "lsb" }).bits("x", 4).bits("y", 8).bits("z", 4),
+    ),
+    "21 43",
+    { a: { x: 1, y: 0x32, z: 4 } },
+  ),
+  test(
+    "bit fields of more than 32 bits",
+    bin().bits("a", 32).bits("b", 32),
+    "fffffffe 89abcdef",
+    { a: 0xfffffffe, b: 0x89abcdef },
+  ),
+
+  test(
+    "literals, refinements and conversions",
+    bin()
+      .field("magic", literal(u8, 0x42))
+      .field(
+        "n",
+        refine(u8, (n) => n < 10),
+      )
+      .field(
+        "on",
+        map(u8, {
+          decode: (v) => v === 1,
+          encode: (v: boolean) => (v ? 1 : 0),
+        }),
+      )
+      .field(
+        "ip",
+        map(array(u8, 4), {
+          decode: (b) => b.join("."),
+          encode: (ip: string) => ip.split(".").map(Number),
+        }),
+      ),
+    "42 09 01 0a000001",
+    { magic: 0x42, n: 9, on: true, ip: "10.0.0.1" },
+  ),
+  test(
+    "optional values",
+    bin()
+      .field("a", optional(u8, u16le))
+      .field("b", optional(u8, u16le))
+      .u8("version")
+      .field(
+        "c",
+        when((o) => o.version > 1, u8),
+      )
+      .field(
+        "d",
+        when((o) => o.version > 2, u8),
+      ),
+    "01 0200 00 02 07",
+    { a: 2, b: null, version: 2, c: 7, d: null },
   ),
 ];
 
 describe("Round trips", () => {
-  for (const { name, parser, input, value } of cases) {
+  for (const { name, codec, bytes, value } of cases) {
     it(name, async () => {
-      assert.deepEqual(parser.parse(input), value);
-      // Skipping covers the code that steps over each kind of field.
-      assert.equal(
-        parser.parseFrom(input, 0, { fields: [] }).offset,
-        input.length,
-      );
-      assert.deepEqual(parser.serialize(value), input);
-      assert.equal(parser.sizeOf(value), input.length);
-      // Byte by byte, so that every field spans chunks.
-      const chunks = Array.from(input, (byte) => Buffer.from([byte]));
-      assert.deepEqual(await collect(parser, chunks), [value]);
+      assert.deepEqual(codec.decode(bytes), value);
+      assert.deepEqual(codec.encode(value as never), bytes);
+      // Stepping over the value, and decoding it from chunks of one byte.
+      const reader = new Reader(bytes);
+      reader.read(bin().field("value", codec).pick());
+      assert.equal(reader.offset, bytes.length);
+      assert.deepEqual(await collect(codec, bytewise(bytes)), [value]);
     });
   }
-
-  it("copies buffers with clone", () => {
-    const input = Buffer.from([1, 2]);
-    const { a } = Bin.start()
-      .buffer("a", { length: 2, clone: true })
-      .parse(input);
-    input[0] = 9;
-    assert.deepEqual(a, Buffer.from([1, 2]));
-  });
-
-  it("reports the size of fixed-size parsers", () => {
-    const sizes: [Bin, number][] = [
-      [Bin.start().int8("a").string("b", { length: 10 }), 11],
-      [Bin.start().array("a", { type: Pair, length: 3 }).bit4("b"), 10],
-      [Bin.start().fixedSizeNest("a", { type: Str, length: 4 }), 4],
-      [Str, NaN],
-      [Bin.start().string("a", { length: 4, zeroTerminated: true }), NaN],
-      [Tree, NaN],
-    ];
-    for (const [parser, size] of sizes) assert.equal(parser.sizeOf(), size);
-  });
 });

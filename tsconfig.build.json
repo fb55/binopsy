@@ -4,7 +4,8 @@
     "noEmit": false,
     "rootDir": "src",
     "outDir": "lib",
-    "types": ["node"]
+    "types": [],
+    "stripInternal": true
   },
   "include": ["src"]
 }

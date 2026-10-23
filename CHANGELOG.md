@@ -2,55 +2,63 @@
 
 ## Unreleased
 
-binopsy is rewritten in TypeScript, with typed parse results, a compiled parser and new parsing methods.
-Changes are relative to the last JavaScript version (`master`).
+binopsy is rewritten in TypeScript, around codecs: values that decode and encode, compiled to specialized JavaScript functions.
+Parsers are defined as before, field by field, but each method returns a new parser, and every parser is a codec.
+Changes are relative to the last published version, 0.0.0, whose API followed binary-parser's; all of it changed.
+Formats keep their bytes with the rewrites below (except where noted), but not the quirks of 0.0.0 (such as returning partial values for truncated input).
 
-### Breaking changes
+### Migration
 
-- **ES module only, Node.js ≥ 22.18.** `require("binopsy")` returned the parser class; now there are named exports.
-  Migration: `import { Bin } from "binopsy"` (or `Parser`). In CommonJS on a Node.js version with `require(esm)`: `const { Bin } = require("binopsy")`.
-- **`endianess()` is renamed `endianness()`** (as in binary-parser 2). Migration: rename the call.
-- **`compile()`, `getCode()` and the static `Bin.Parser` are removed.** Parsers compile themselves. Migration: drop `compile()` calls; use the `Parser` export instead of `Bin.Parser`.
-- **Internals are private**: `parser`, `serializer`, `endian`, `bitRequests`, `_flushBitfield()`, `readFunc`, `writeFunc`, `sizeFunc`, `constructorFn`, `fixedSize`. Migration: use `parse`, `parseFrom`, `serialize`, `sizeOf` and `stream`.
-- **Truncated input is an error.** `parse()` throws a `RangeError` instead of returning `{}` or a partly filled object, and a zero-terminated string must end with a zero byte. Streams emit an error when the input ends in the middle of a value, instead of dropping it or emitting a partial value, and no longer emit an extra (empty) value at the end.
-  Migration: catch the `RangeError`; for data that ends early by design, read the rest with `buffer(name, { readUntil: "eof" })` or `length: Infinity`.
-- **Arrays need `length` or `readUntil`.** Without either, they used to read to the end of the input. Migration: add `readUntil: "eof"`.
-- **An array ending at a `readUntil` function must find its last item.** Input that ends before is an error. Migration: as for truncated input.
-- **Serializing checks lengths.** Arrays and buffers must have the length their `length` gives, an array with a `readUntil` function must end with its first item passing it, a string may not be longer than its `length`, and a zero-terminated string may not contain a zero byte; these were written as given, producing bytes that do not parse back. Migration: keep length fields in sync with the values.
-- **Lengths from fields or functions must be non-negative integers**; others are an error (a negative length used to move the offset back). Numeric lengths are checked when the field is defined.
-- **The bit fields of a nested parser no longer join the parent's run of bit fields**, so a parser has the same layout wherever it is nested (the joining depended on whether the nested parser had been used before, and skipped its formatter). Migration: define bit fields that share bytes in one parser, e.g. `.bit1("a").bit2("b")` instead of `.bit1("a").nest("x", { type: Bin.start().bit2("b") })`, and regroup them with a formatter if needed.
-- **Keyed arrays (`key`) with two items of the same key are an error** instead of losing one of them.
-- **Falsy asserts (`assert: 0`, `""`) are checked**; they used to be ignored. Migration: remove asserts that never held.
-- **A `type` must be a parser or a primitive name.** Custom type objects (with `readFunc`, `writeFunc` and `sizeFunc`) are no longer accepted. Migration: a parser, with a `formatter` and `deformatter` if the value needs converting.
-- **Parsers that create class instances (`create`) can only be flattened through a formatter**, as flattening copies their fields but not their methods. Migration: add a `formatter` that returns the fields to copy (and a `deformatter`).
-- **`serialize(value, buffer)` returns the bytes written** (the start of `buffer`) instead of the whole `buffer`, and throws a `RangeError` if `buffer` is too small. Migration: use the returned buffer, or its `length`.
-- **Errors during streaming are `error` events**, instead of exceptions thrown from `write()`.
-- **Constructors given to `create()` are called without arguments**; they used to get the parent object (undocumented). Migration: set references to parents after parsing.
+| 0.0.0                                                                        | Now                                                                                                                 |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `const Bin = require("binopsy")`, `new Bin()`, `Bin.start()`                 | `import { bin } from "binopsy"`, `bin()` (ES module only)                                                           |
+| Field methods change the parser                                              | Field methods return a new parser                                                                                   |
+| `.uint8("a")`, `.int16le("a")`, `.floatbe("a")`, `.doublele("a")`            | `.u8("a")`, `.i16le("a")`, `.f32be("a")`, `.f64le("a")`                                                             |
+| `.endianess("little").uint16("a")`                                           | `.u16le("a")` (no default byte order)                                                                               |
+| `.bit3("a").bit5("b")`                                                       | `.bits("a", 3).bits("b", 5)`; numbers after bit fields start at the next byte, as before                            |
+| `.endianess("little").bit3("a").bit2("b")`                                   | `.bits("b", 2).bits("a", 3)`: the fields of each run in reverse order (the padding stays last)                      |
+| Bit fields of nested parsers sharing bytes with the parent's                 | One run of bit fields, and `map` to the nested object (nested parsers start at a byte)                              |
+| `.string("s", { length: 4 })`                                                | `.field("s", string(4))`; encoding needs text of 4 bytes, unless it has a terminator or padding                     |
+| `.string("s", { length: 4, stripNull: true })`                               | `string(4, { padRight: 0 })` (trailing zeros are removed)                                                           |
+| `.string("s", { zeroTerminated: true })`                                     | `string({ terminator: 0 })`; a missing terminator fails                                                             |
+| `.string("s", { zeroTerminated: true, length: 8 })` (or a field or function) | `string({ terminator: 0, max: 8 })` (`string(8, { terminator: 0 })` takes all 8 bytes)                              |
+| `.string("s", { length: "n" })`, `{ encoding: "latin1" }`                    | `string("n")`, `string(n, { encoding: "latin1" })`; zero terminators of `utf16le` strings are 16-bit units          |
+| `{ encoding: "hex" }`, `"base64"`                                            | `map(bytes(length), …)` (text encodings: utf8, latin1, ascii, utf16le)                                              |
+| `.buffer("b", { length: "n" })`, `{ readUntil: "eof" }`                      | `bytes("n")`, `bytes(Infinity)` (`Uint8Array`s, viewing the input)                                                  |
+| `.buffer("b", { length: 4, clone: true })`                                   | `map(bytes(4), { decode: (b) => b.slice(), encode: (b) => b })`                                                     |
+| `.array("a", { type, length: "n" })`                                         | `array(type, "n")`, or `array(type, u8)` (the count is not a field, and is written from the array)                  |
+| `.array("a", { type, readUntil: "eof" })`, `{ readUntil: (item) => … }`      | `array(type, Infinity)`, `array(type, { until: (item) => … })` (the last item is included)                          |
+| `.array("a", { type, length, readUntil })`                                   | A `custom` codec (an array up to an item, or of a length, whichever comes first)                                    |
+| `.array("a", { type, length, key: "id" })`                                   | `map(array(type, length), …)` to an object                                                                          |
+| `.nest("a", { type: Parser })`, `{ flatten: true }`                          | `.field("a", Parser)`, `.merge(Parser)`                                                                             |
+| `.fixedSizeNest("a", { type, length })`                                      | `.field("a", sized(length, type))`                                                                                  |
+| `.choice("a", { tag: "t", choices, defaultChoice })`                         | `.field("a", match("t").case(1, A).case(2, B).otherwise(D))`: the objects become a union discriminated by `t`       |
+| `.choice("a", { tag: (o) => …, choices })`                                   | `.field("a", match((o: …) => …).case(…))`                                                                           |
+| `.choice("a", { …, flatten: true })`                                         | `.merge(match("t").case(1, A)…)`, of parsers                                                                        |
+| `{ formatter, deformatter }`                                                 | `map(codec, { decode, encode })`, or only `decode`; functions of the whole object map the parser                    |
+| `{ assert: 1 }`, `{ assert: (v) => … }`                                      | `literal(codec, 1)` (which may be omitted when encoding), `refine(codec, (v) => …)` (also checked when encoding)    |
+| `.create(Class)`                                                             | `map(parser, { decode: (o) => Object.assign(new Class(), o), encode: … })`                                          |
+| `parser.parse(buffer)`                                                       | `parser.decode(bytes)`; truncated input throws a `DecodeError`                                                      |
+| `parser.serialize(value)`, `parser.serialize(value, buffer)`                 | `parser.encode(value)`, `parser.encodeInto(value, bytes)` (which returns the offset after the value)                |
+| `parser.sizeOf()`, `parser.sizeOf(value)`                                    | `parser.size` (fixed size, otherwise NaN), `parser.encode(value).length` (allocates and encodes; not a sizing pass) |
+| `parser.stream()` (a `Transform`)                                            | `decodeStream(parser, source)` (an async iterator); `Readable.from` it for a Node.js stream                         |
+| Type objects with `readFunc`, `writeFunc`, `sizeFunc`                        | `custom({ decode, encode, size })`                                                                                  |
+| `compile()`, `getCode()`                                                     | Not needed: codecs compile themselves                                                                               |
+| Functions of the parent object (`function () { return this.n }`)             | Functions of the earlier fields: `(o) => o.n`                                                                       |
 
 ### Additions
 
-- TypeScript types: the type of parsed values is inferred from the fields (`ValueOf<typeof parser>`), and options are checked (e.g. lengths and tags must name earlier fields, a formatter needs a deformatter).
-- `parseFrom(buffer, offset, { fields })` parses at an offset and returns the end offset; with `fields`, it decodes only the named fields (`fields: []` finds the end of a value).
-- 64-bit integers (`uint64le`, `int64be`, … and `uint64`/`int64`) as `bigint`.
-- `Bin.lazy(() => parser)` for recursive types.
-- Parsers are compiled to JavaScript functions: parsing is about ten times faster, also for streams.
-- `assert` accepts any primitive value (e.g. a `bigint` or, after a formatter, a boolean).
-- Length and tag functions also get the object as their argument (besides `this`), so arrow functions work.
-- `fixedSizeNest` accepts `flatten: true`.
+- Types: the decoded and encoded values are inferred (`Output<typeof parser>`, `Input<typeof parser>`); lengths, tags and functions are checked against the fields before them, and editors complete the names of fields.
+- `parser.pick(...fields)` decodes some fields and steps over the others; `Reader` decodes consecutive values.
+- Computed fields (`.computed`) and literals may be omitted when encoding; counts read before a value are written from it (also the size of a region, after it).
+- Parsers can read fields of the parser they are added to: `bin<{ length: number }>()`.
+- `optional(flag, codec)` and `when(condition, codec)` for values that may be absent; `lazy` for recursive formats; `custom` for formats of your own; `fail` for unsupported parts.
+- Strings: padding, terminators of any byte, and lengths of any kind.
+- 64-bit integers, as `bigint`.
+- Errors give the path of the field (e.g. `items[3].name`) and the offset.
+- Streams decode values spanning chunks without starting over, work with any async iterable, such as Node.js and web streams, and close their source when stopped.
+- binopsy works in browsers: it uses `Uint8Array`s and `DataView`s instead of `Buffer`s.
 
-### Fixes
+`size` can also be unknown before lazy compilation. The former little-endian bit layout is not the new `lsb` layout: use the reversal migration above, with padding last. Audit old UTF-16LE terminated strings: 0.0.0 scanned zero bytes, while the new scanner recognizes complete code units. Mapping keyed arrays must account for duplicate keys and property order. Parent-dependent assertions should refine the whole raw record, and constructor-created parser state needs an explicit map or custom rewrite.
 
-- Using a parser (e.g. `sizeOf()` or nesting it) between two of its bit fields no longer splits their run.
-- A run of bit fields keeps the byte order in force when it is defined; `.endianness()` used to also change bit fields defined before it. With little endian, the fields of a run are stored in order, so formatters and asserts can read earlier fields of the run.
-- Streams respect backpressure: values are parsed as the reader takes them, not all values of a chunk at once.
-- Fixed-length strings shorter than their length are padded with zeros when serialized; they used to shift the following fields.
-- `bit32` fields (and other fields of runs longer than 31 bits) are unsigned in streams too, and runs longer than 53 bits are exact.
-- Bit fields with a formatter are deformatted when serialized.
-- Keyed arrays whose key is a number can be serialized.
-- A `nest` after bit fields no longer moves before them.
-- Zero-length arrays, long arrays, long strings and many values in one chunk no longer fail (empty results or stack overflows).
-- Empty zero-terminated strings, and zero-terminated strings with multi-byte characters, are parsed and serialized correctly.
-- `sizeOf()` reports zero-terminated strings with a maximum length and arrays with `readUntil` as variable (`NaN`).
-- A tag value such as `"constructor"` no longer matches properties inherited by the `choices` object.
-- Streams of a parser that reads no bytes emit an error instead of hanging.
-- A fixed-size nested value is padded with zeros when serialized into a given buffer.
+Callbacks must be pure. Complete-record decoding may be retried with resumable decoding, and custom callbacks can restart with each larger view. Stream records must consume bytes; source errors retain identity. Definitions reject unknown options, invalid bounds, duplicate reachable fields and `__proto__`. Null alone denotes absence. Literal defaults survive sized/lazy wrappers; map/custom inputs accepting undefined remain required keys.

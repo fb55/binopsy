@@ -1,323 +1,217 @@
 /**
- * Parses input that arrives in chunks (`stream()`). A value that lies within
- * the first buffered chunk is parsed by the compiled parser. Other values,
- * and all values of parsers that read up to the end of the input, are read
- * by generators that yield the number of bytes they need next and receive
- * them once available, so a value spanning chunks is not parsed again from
- * its start (only the compiled attempt is repeated, so formatters should not
- * have side effects).
+ * Decoding streams: values may span any number of chunks. A value is
+ * decoded with the codec's decoder if its chunk holds all of it, and else
+ * with its resumable decoder, which continues as chunks arrive.
  */
-import { Transform } from "node:stream";
-import { parser } from "./compile.ts";
 import {
-  endOfInput,
-  lengthOf,
-  noProgress,
-  pick,
-  readBits,
-  resolve,
-  tagOf,
-  type Field,
-  type Obj,
-  type Struct,
-  type Type,
-} from "./fields.ts";
-import { PRIMITIVE_TYPES, readPrimitive } from "./primitive-types.ts";
+  DecodeError,
+  viewOf,
+  within,
+  type AnyCodec,
+  type Codec,
+  type Cursor,
+} from "./codec.ts";
+import { compile, type Decoder } from "./compile.ts";
+
+const EMPTY = new Uint8Array(0);
+const MORE = Symbol("more");
+const DONE = Object.freeze({ value: undefined, done: true as const });
+
+type Chunks = AsyncIterator<Uint8Array> | Iterator<Uint8Array>;
 
 /**
- * Reads a value. Yields byte counts (`Infinity`: the rest of the input) and
- * receives the bytes, or yields `PEEK`.
+ * Decodes the values of `codec` in the chunks of `source` (any iterable or
+ * async iterable of bytes, e.g. a Node.js or web stream). Stopping (with
+ * `break`, or a failure) closes the source.
  */
-type Reader<T> = Generator<number, T, Buffer>;
-
-/** Requests the buffered input without consuming it: at least one byte, or none at the end. */
-const PEEK = -1;
-
-const EMPTY = Buffer.alloc(0);
-
-function* readType(type: Type): Reader<unknown> {
-  const resolved = resolve(type);
-  if (typeof resolved === "string") {
-    const bytes = yield PRIMITIVE_TYPES[resolved].size;
-    return readPrimitive(resolved, bytes, 0);
-  }
-  return yield* readStruct(resolved);
+export function decodeStream<O>(
+  codec: Codec<O, never, unknown>,
+  source: AsyncIterable<Uint8Array> | Iterable<Uint8Array>,
+): AsyncIterableIterator<O> {
+  if (codec.size === 0)
+    throw new TypeError("values of no bytes cannot be streamed");
+  const chunks =
+    Symbol.asyncIterator in source
+      ? source[Symbol.asyncIterator]()
+      : source[Symbol.iterator]();
+  return new Values<O>(codec as AnyCodec, chunks);
 }
 
-function* readStruct(struct: Struct): Reader<Obj> {
-  const obj: Obj = struct.create ? new struct.create() : {};
-  for (const field of struct.fields) {
-    switch (field.kind) {
-      case "bits": {
-        const bytes = yield field.bytes;
-        for (const bit of field.bits) {
-          bit.store(obj, readBits(bytes, 0, bit.pos, bit.width));
-        }
-        break;
+/** The values of a stream; values in the chunks read so far are returned without waiting. */
+class Values<O> implements AsyncIterableIterator<O> {
+  private readonly decode: Decoder;
+  private readonly resume: (cur: Cursor) => Generator<number, O>;
+  private readonly chunks: Chunks;
+  private readonly cur: Cursor = {
+    bytes: EMPTY,
+    view: viewOf(EMPTY),
+    offset: 0,
+    end: 0,
+    final: false,
+  };
+  /** The position of `cur.bytes` in the stream. */
+  private base = 0;
+  /** A value continuing in later chunks, and the offset it needs to reach. */
+  private pending: Generator<number, O> | undefined;
+  private reach = 0;
+  /** The buffer pending values are collected in (the only one written to). */
+  private own = EMPTY;
+  /** Calls of `next` waiting for chunks run one after the other. */
+  private queue: Promise<unknown> = Promise.resolve();
+  private waiting = 0;
+  private done = false;
+  private closed = false;
+  private closing: Promise<void> | undefined;
+
+  constructor(codec: AnyCodec, chunks: Chunks) {
+    this.decode = compile(codec, "decode", "all");
+    this.resume = compile(codec, "resume", "all") as (
+      cur: Cursor,
+    ) => Generator<number, O>;
+    this.chunks = chunks;
+  }
+
+  [Symbol.asyncIterator](): this {
+    return this;
+  }
+
+  next(): Promise<IteratorResult<O, undefined>> {
+    if (!this.waiting) {
+      // A value in the chunks read so far: no need to wait.
+      if (this.done) return Promise.resolve(DONE);
+      try {
+        const value = this.take();
+        if (value !== MORE) return Promise.resolve({ value, done: false });
+      } catch (e) {
+        return this.fail(e);
       }
-      case "primitive": {
-        const bytes = yield PRIMITIVE_TYPES[field.type].size;
-        field.store(obj, readPrimitive(field.type, bytes, 0));
-        break;
-      }
-      case "nest": {
-        const value = readType(field.type);
-        field.store(
-          obj,
-          yield* field.length === undefined
-            ? value
-            : region(value, lengthOf(field.length, obj, field.name)),
-        );
-        break;
-      }
-      case "string":
-        field.store(obj, yield* readString(field, obj));
-        break;
-      case "buffer":
-        field.store(obj, yield lengthOf(field.length, obj, field.name));
-        break;
-      case "array":
-        field.store(obj, yield* readArray(field, obj));
-        break;
-      case "choice":
-        field.store(obj, yield* readType(pick(field, tagOf(field.tag, obj))));
-        break;
     }
+    this.waiting++;
+    const result = this.queue
+      .then(() => this.step())
+      .finally(() => this.waiting--);
+    this.queue = result.catch(() => undefined);
+    return result;
   }
-  return obj;
-}
 
-function* readString(
-  field: Extract<Field, { kind: "string" }>,
-  obj: Obj,
-): Reader<string> {
-  if (!field.zeroTerminated) {
-    return (yield lengthOf(field.length, obj, field.name)).toString(
-      field.encoding,
-    );
+  async return(): Promise<IteratorResult<O, undefined>> {
+    this.done = true;
+    // After a chunk being waited for arrives (its values are dropped).
+    await this.queue;
+    await this.close();
+    return DONE;
   }
-  // Up to `length` bytes; a zero byte ends the string and is consumed.
-  const parts: Buffer[] = [];
-  for (let left = lengthOf(field.length, obj, field.name); left > 0;) {
-    const available = (yield PEEK).subarray(0, left);
-    if (available.length === 0) throw endOfInput();
-    const zero = available.indexOf(0);
-    if (zero >= 0) {
-      parts.push(yield zero);
-      yield 1;
-      break;
-    }
-    parts.push(yield available.length);
-    left -= available.length;
-  }
-  return Buffer.concat(parts).toString(field.encoding);
-}
 
-function* readArray(
-  field: Extract<Field, { kind: "array" }>,
-  obj: Obj,
-): Reader<unknown[]> {
-  const { type, until } = field;
-  const length = lengthOf(field.length, obj, field.name);
-  const items: unknown[] = [];
-  // Primitives with a known count: one read.
-  if (typeof type === "string" && until === undefined) {
-    const { size } = PRIMITIVE_TYPES[type];
-    const bytes = yield length * size;
-    for (let i = 0; i < length; i++) {
-      items.push(readPrimitive(type, bytes, i * size));
-    }
-    return items;
-  }
-  while (items.length < length) {
-    if (until === "eof" && (yield PEEK).length === 0) break;
-    let item: unknown;
-    let used = 1;
-    if (length === Infinity) [item, used] = yield* measure(readType(type));
-    else item = yield* readType(type);
-    items.push(item);
-    if (typeof until === "function" && until(item as never)) break;
-    // An item that reads nothing (and does not end the array) would be read forever.
-    if (used === 0) noProgress(field.name);
-  }
-  return items;
-}
-
-/** Runs `reader`, and returns its value with the number of bytes it consumed. */
-function* measure<T>(reader: Reader<T>): Reader<[T, number]> {
-  let used = 0;
-  let step = reader.next();
-  while (!step.done) {
-    const input = yield step.value;
-    if (step.value !== PEEK) used += input.length;
-    step = reader.next(input);
-  }
-  return [step.value, used];
-}
-
-/** Limits `reader` to the next `size` bytes, and skips the bytes it leaves. */
-function* region<T>(reader: Reader<T>, size: number): Reader<T> {
-  let left = size;
-  let step = reader.next();
-  while (!step.done) {
-    let request = step.value;
-    let input: Buffer;
-    if (request === PEEK) {
-      input = left > 0 ? (yield PEEK).subarray(0, left) : EMPTY;
-    } else {
-      if (request === Infinity) request = left;
-      if (request > left) throw endOfInput();
-      left -= request;
-      input = yield request;
-    }
-    step = reader.next(input);
-  }
-  if (left > 0) yield left;
-  return step.value;
-}
-
-/** Whether values of `type` may extend to the end of the input (so only its end can complete them). */
-function openEnded(type: Type, seen = new Set<Type>()): boolean {
-  if (typeof type === "string" || seen.has(type)) return false;
-  seen.add(type);
-  return (resolve(type) as Struct).fields.some((field) => {
-    switch (field.kind) {
-      case "string":
-        return !field.zeroTerminated && field.length === Infinity;
-      case "buffer":
-        return field.length === Infinity;
-      case "array":
-        return field.until === "eof" || openEnded(field.type, seen);
-      case "nest":
-        return field.length === undefined && openEnded(field.type, seen);
-      case "choice":
-        return [...Object.values(field.choices), field.defaultChoice].some(
-          (choice) => choice !== undefined && openEnded(choice, seen),
-        );
-      default:
-        return false;
-    }
-  });
-}
-
-/** A transform stream that parses its input into a sequence of values of `type`. */
-export function stream(type: Type): Transform {
-  const parse = openEnded(type) ? undefined : parser(type, "all");
-  /** Received input not yet consumed; it starts at `offset` in `chunks[0]`. */
-  const chunks: Buffer[] = [];
-  let offset = 0;
-  let available = 0;
-  let ended = false;
-  /** The value being read, the bytes it consumed, and its pending request. */
-  let reader: Reader<unknown> | undefined;
-  let used = 0;
-  let request = 0;
-  /** Continues parsing that stopped because the reader was full. */
-  let resume: (() => void) | undefined;
-
-  const transform = new Transform({
-    readableObjectMode: true,
-    transform(chunk: Buffer, _encoding, done) {
-      if (chunk.length > 0) {
-        chunks.push(chunk);
-        available += chunk.length;
-      }
-      run(done);
-    },
-    flush(done) {
-      ended = true;
-      run(done);
-    },
-    read(size) {
-      const pending = resume;
-      resume = undefined;
-      if (pending) pending();
-      else Transform.prototype._read.call(this, size);
-    },
-  });
-  return transform;
-
-  /** Parses what it can, then lets the stream continue (once the reader has room). */
-  function run(done: (err?: Error) => void): void {
-    let full: boolean;
+  private async step(): Promise<IteratorResult<O, undefined>> {
+    if (this.done) return DONE;
     try {
-      full = pump();
-    } catch (err) {
-      done(err as Error);
+      for (;;) {
+        const value = this.take();
+        if (value !== MORE) return { value, done: false };
+        if (this.cur.final) {
+          this.done = true;
+          return DONE;
+        }
+        let chunk;
+        try {
+          chunk = await this.chunks.next();
+        } catch (e) {
+          // Source errors keep their identity, but still close the source.
+          return this.fail(e, false);
+        }
+        if (this.done) return DONE;
+        // At the end, values reading up to the end of the input are complete.
+        if (chunk.done) {
+          this.cur.final = true;
+          this.closed = true;
+        } else this.add(chunk.value);
+      }
+    } catch (e) {
+      return this.fail(e);
+    }
+  }
+
+  /** Ends the iteration with decoding error `e` (with offsets in the stream), closing the source. */
+  private async fail(e: unknown, decode = true): Promise<never> {
+    this.done = true;
+    const error =
+      decode && e instanceof DecodeError ? within(e, 0, [], this.base) : e;
+    // A failure closing the source does not hide this one.
+    await this.close().catch(() => undefined);
+    throw error;
+  }
+
+  /** Closes the source (once). */
+  private close(): Promise<void> {
+    if (this.closing) return this.closing;
+    if (this.closed) return Promise.resolve();
+    this.closed = true;
+    return (this.closing = Promise.resolve()
+      .then(() => this.chunks.return?.())
+      .then(() => undefined));
+  }
+
+  /** The next value in the chunks read so far, or `MORE`. */
+  private take(): O | typeof MORE {
+    const { cur } = this;
+    if (this.pending) {
+      while (cur.end >= this.reach || cur.final) {
+        const step = this.pending.next();
+        if (step.done) {
+          this.pending = undefined;
+          if (cur.offset === 0)
+            throw new DecodeError("invalid", "a value took no bytes", 0);
+          return step.value;
+        }
+        this.reach = step.value;
+        // The input ended in the value: decoding it again locates the error (it starts at offset 0).
+        if (cur.final) this.decode({ ...cur, offset: 0 });
+      }
+      return MORE;
+    }
+    const start = cur.offset;
+    if (start === cur.end) return MORE;
+    try {
+      const value = this.decode(cur) as O;
+      if (cur.offset === start)
+        throw new DecodeError("invalid", "a value took no bytes", start);
+      return value;
+    } catch (e) {
+      const more = e instanceof DecodeError && e.code === "end-of-input";
+      if (!more || cur.final) throw e;
+    }
+    // The value continues in later chunks: decode it in a buffer of its own, which they are added to.
+    cur.offset = start;
+    this.base += start;
+    this.use(cur.bytes.subarray(start, cur.end), cur.end - start);
+    cur.offset = 0;
+    this.pending = this.resume(cur);
+    this.reach = 0;
+    return this.take();
+  }
+
+  /** Adds a chunk: after the pending value's bytes, or instead of the bytes read. */
+  private add(chunk: Uint8Array): void {
+    const { cur } = this;
+    if (!this.pending) {
+      this.base += cur.end;
+      this.use(chunk, chunk.length);
+      cur.offset = 0;
       return;
     }
-    if (full) resume = () => run(done);
-    else done();
+    // Bytes are only written past `cur.end`, where no decoded value refers to.
+    const end = cur.end + chunk.length;
+    if (cur.bytes !== this.own || end > this.own.length) {
+      this.own = new Uint8Array(Math.max(end, 2 * cur.end, 4096));
+      this.own.set(cur.bytes.subarray(0, cur.end));
+    }
+    this.own.set(chunk, cur.end);
+    this.use(this.own, end);
   }
 
-  /**
-   * Feeds the readers until they wait for more input than there is (returns
-   * false), or until the reader is full (returns true).
-   */
-  function pump(): boolean {
-    for (;;) {
-      let step: IteratorResult<number, unknown>;
-      if (!reader) {
-        // A new value starts only if there is input for it.
-        if (available === 0) return false;
-        used = 0;
-        const parsed = parse?.(chunks[0], offset);
-        if (parsed) {
-          consume(parsed.offset - offset);
-          step = { done: true, value: parsed.result };
-        } else {
-          reader = readType(type);
-          step = reader.next();
-        }
-      } else if (request === PEEK) {
-        if (available === 0 && !ended) return false;
-        step = reader.next(available ? chunks[0].subarray(offset) : EMPTY);
-      } else if (request <= available || (ended && request === Infinity)) {
-        step = reader.next(take(Math.min(request, available)));
-      } else if (ended) {
-        throw endOfInput();
-      } else {
-        return false;
-      }
-
-      if (!step.done) {
-        request = step.value;
-      } else {
-        // Reading nothing, the parser would produce values forever.
-        if (used === 0) throw new Error("parsed a value without reading input");
-        reader = undefined;
-        if (!transform.push(step.value)) return true;
-      }
-    }
-  }
-
-  /** Consumes `n` buffered bytes, joining chunks if they span several. */
-  function take(n: number): Buffer {
-    if (n === 0) return EMPTY;
-    let head = chunks[0];
-    if (head.length - offset < n) {
-      let size = head.length - offset;
-      let count = 1;
-      while (size < n) size += chunks[count++].length;
-      head = Buffer.concat(
-        [head.subarray(offset), ...chunks.slice(1, count)],
-        size,
-      );
-      chunks.splice(0, count, head);
-      offset = 0;
-    }
-    const bytes = head.subarray(offset, offset + n);
-    consume(n);
-    return bytes;
-  }
-
-  function consume(n: number): void {
-    offset += n;
-    available -= n;
-    used += n;
-    if (offset === chunks[0].length) {
-      chunks.shift();
-      offset = 0;
-    }
+  private use(bytes: Uint8Array, end: number): void {
+    this.cur.bytes = bytes;
+    this.cur.view = viewOf(bytes);
+    this.cur.end = end;
   }
 }

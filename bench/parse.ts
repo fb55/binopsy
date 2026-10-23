@@ -1,62 +1,51 @@
 /**
- * Parsing benchmark: a record format shaped like a typical game database
+ * Decoding benchmark: a record format shaped like a typical game database
  * record (header fields, strings, counted arrays of structs, optional parts,
- * nested parsers), serialized with binopsy itself and parsed back.
+ * nested parsers), encoded with binopsy itself and decoded back.
  *
- *   node bench/parse.ts [records]
+ *   NODE_OPTIONS=--max-old-space-size=1536 node bench/parse.ts [records]
  */
-import { Bin, type ValueOf } from "../src/index.ts";
+import {
+  array,
+  bin,
+  bytes,
+  decodeStream,
+  f32le,
+  match,
+  Reader,
+  string,
+  u16le,
+  u32le,
+  u8,
+  type Input,
+} from "../src/index.ts";
 
-const Str = Bin.start()
-  .uint32le("length")
-  .string("value", { length: "length" });
-const STRING = {
-  type: Str,
-  formatter: (s: { value: string }) => s.value,
-  deformatter: (value: string) => ({ length: Buffer.byteLength(value), value }),
-};
-const Ref = Bin.start().uint32le("row").uint32le("uid");
-const Item = Bin.start()
-  .uint8("kind")
-  .uint16le("a")
-  .uint32le("b")
-  .int8("c")
-  .floatle("d");
+const Str = string(u32le);
+const Ref = bin().u32le("row").u32le("uid");
+const Item = bin().u8("kind").u16le("a").u32le("b").i8("c").field("d", f32le);
 
-const Record = Bin.start()
-  .uint32le("rowId")
-  .uint8("cls")
-  .array("ratings", { type: "uint16le", length: 5 })
-  .nest("club", { type: Ref })
-  .array("attributes", { type: "uint8", length: 69 })
-  .nest("name", STRING)
-  .nest("fullName", STRING)
-  .uint8("itemCount")
-  .array("items", { type: Item, length: "itemCount" })
-  .uint8("hasExtra")
-  .choice("extra", {
-    tag: "hasExtra",
-    choices: {
-      0: Bin.start(),
-      1: Bin.start().uint32le("x").buffer("y", { length: 12 }),
-    },
-  })
-  .uint32le("historyCount")
-  .array("history", { type: "uint8", length: "historyCount" })
-  .doublele("value")
-  .uint32le("uniqueId");
+const Record = bin()
+  .u32le("rowId")
+  .u8("cls")
+  .field("ratings", array(u16le, 5))
+  .field("club", Ref)
+  .field("attributes", array(u8, 69))
+  .field("name", Str)
+  .field("fullName", Str)
+  .field("items", array(Item, u8))
+  .u8("hasExtra")
+  .field(
+    "extra",
+    match("hasExtra")
+      .case(0, bin())
+      .case(1, bin().u32le("x").field("y", bytes(12))),
+  )
+  .field("history", array(u8, u32le))
+  .f64le("value")
+  .u32le("uniqueId");
 
-type Rec = ValueOf<typeof Record>;
-
-function makeRecord(i: number): Rec {
-  const items = Array.from({ length: i % 7 }, (_, k) => ({
-    kind: k,
-    a: i & 0xffff,
-    b: i * 7,
-    c: -3,
-    d: 1.5,
-  }));
-  const hasExtra = i % 3 === 0 ? 1 : 0;
+function makeRecord(i: number): Input<typeof Record> {
+  const hasExtra = i % 3 === 0;
   return {
     rowId: i,
     cls: 2,
@@ -65,63 +54,69 @@ function makeRecord(i: number): Rec {
     attributes: Array.from({ length: 69 }, (_, k) => (i + k) % 21),
     name: `Player ${i}`,
     fullName: `Some Fairly Long Full Name ${i}`,
-    itemCount: items.length,
-    items,
-    hasExtra,
-    extra: hasExtra ? { x: i, y: Buffer.alloc(12, 1) } : {},
-    historyCount: i % 5,
+    items: Array.from({ length: i % 7 }, (_, k) => ({
+      kind: k,
+      a: i & 0xffff,
+      b: i * 7,
+      c: -3,
+      d: 1.5,
+    })),
+    ...(hasExtra
+      ? { hasExtra: 1, extra: { x: i, y: new Uint8Array(12).fill(1) } }
+      : { hasExtra: 0, extra: {} }),
     history: Array.from({ length: i % 5 }, (_, k) => k),
     value: i * 1.25,
     uniqueId: i * 31,
-  } as unknown as Rec;
+  };
 }
 
-const n = Number(process.argv[2] ?? 200_000);
-const parts: Buffer[] = [];
-for (let i = 0; i < n; i++) parts.push(Record.serialize(makeRecord(i)));
-const data = Buffer.concat(parts);
-
-async function run(label: string, fn: () => unknown) {
-  await fn(); // Warm up
-  const t0 = performance.now();
-  await fn();
-  const ms = performance.now() - t0;
-  console.log(
-    `${label.padEnd(28)} ${ms.toFixed(0).padStart(6)} ms  ${(((n / ms) * 1000) / 1e6).toFixed(2)} M records/s  ${(((data.length / ms) * 1000) / 1e6).toFixed(0)} MB/s`,
-  );
-}
+const n = Number(process.argv[2] ?? 50_000);
+const values = Array.from({ length: n }, (_, i) => makeRecord(i));
+const parts = values.map((value) => Record.encode(value));
+const data = new Uint8Array(
+  parts.reduce((size, part) => size + part.length, 0),
+);
+for (let i = 0, o = 0; i < n; o += parts[i++].length) data.set(parts[i], o);
 
 console.log(`${n} records, ${(data.length / 1e6).toFixed(1)} MB`);
 
-function parseAll(fields?: readonly (keyof Rec & string)[]) {
+async function run(label: string, fn: () => unknown) {
+  await fn(); // Warm up
+  const start = performance.now();
+  await fn();
+  const ms = performance.now() - start;
+  console.log(
+    `${label.padEnd(28)} ${ms.toFixed(0).padStart(6)} ms  ${(((n / ms) * 1e3) / 1e6).toFixed(2)} M records/s  ${(((data.length / ms) * 1e3) / 1e6).toFixed(0)} MB/s`,
+  );
+}
+
+function readAll(codec: Parameters<Reader["read"]>[0]) {
+  const reader = new Reader(data);
   let count = 0;
-  for (let o = 0; o < data.length; count++) {
-    o = fields
-      ? Record.parseFrom(data, o, { fields }).offset
-      : Record.parseFrom(data, o).offset;
+  while (!reader.done) {
+    reader.read(codec);
+    count++;
   }
   if (count !== n) throw new Error("bad record count");
 }
 
-/** Parses `data` with the stream reader, in 64 KiB chunks. */
-function streamAll(): Promise<void> {
-  return new Promise((resolve, reject) => {
-    let count = 0;
-    const stream = Record.stream()
-      .on("data", () => count++)
-      .on("error", reject)
-      .on("end", () => {
-        if (count === n) resolve();
-        else reject(new Error("bad record count"));
-      });
-    for (let i = 0; i < data.length; i += 65536) {
-      stream.write(data.subarray(i, i + 65536));
-    }
-    stream.end();
-  });
+async function streamAll() {
+  const chunks = function* () {
+    for (let i = 0; i < data.length; i += 65536)
+      yield data.subarray(i, i + 65536);
+  };
+  let count = 0;
+  for await (const _ of decodeStream(Record, chunks())) count++;
+  if (count !== n) throw new Error("bad record count");
 }
 
+const TwoFields = Record.pick("name", "uniqueId");
+const Skip = Record.pick();
+
 await run("stream (64 KiB chunks)", streamAll);
-await run("parseFrom", () => parseAll());
-await run("parseFrom (2 fields)", () => parseAll(["name", "uniqueId"]));
-await run("parseFrom (skip)", () => parseAll([]));
+await run("decode", () => readAll(Record));
+await run("decode (2 fields)", () => readAll(TwoFields));
+await run("decode (skip)", () => readAll(Skip));
+await run("encode", () => {
+  for (const value of values) Record.encode(value);
+});
