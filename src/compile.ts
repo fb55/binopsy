@@ -406,7 +406,6 @@ export class Gen {
       done,
       "};",
     ].join("\n");
-    // eslint-disable-next-line @typescript-eslint/no-implied-eval
     const values = [...this.consts.keys()].map((key) =>
       key === NEGATIVE_ZERO ? -0 : key,
     );

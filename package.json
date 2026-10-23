@@ -18,21 +18,23 @@
     "CHANGELOG.md"
   ],
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/mocha": "^10.0.10",
-    "@types/node": "^26.6.4",
-    "@typescript-eslint/eslint-plugin": "^8.71.1",
-    "@typescript-eslint/parser": "^8.71.1",
-    "eslint": "^8.57.1",
+    "@types/node": "^26.6.5",
+    "@typescript/native": "npm:typescript@~7.0.2",
+    "eslint": "^10.13.0",
     "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.13.0",
     "mocha": "^12.0.3",
-    "prettier": "^3.9.9",
-    "typescript": "~6.0"
+    "prettier": "^3.9.10",
+    "typescript": "npm:@typescript/typescript6@^6.0.2",
+    "typescript-eslint": "^8.72.0"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "prepack": "npm run build",
     "test": "mocha",
-    "lint": "eslint . && tsc && npm run build && tsc -p test/package",
+    "lint": "eslint . && tsc && npm run build && tsc -p test/package && tsc6 -p test/package",
     "format": "prettier --write ."
   },
   "keywords": [

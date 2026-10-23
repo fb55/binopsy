@@ -1,4 +1,3 @@
-/* eslint-disable */
 // Every parser is an `AnyBin`.
 import { bin, match, string, u8, type AnyBin } from "../../src/index.ts";
 export const parsers: AnyBin[] = [
