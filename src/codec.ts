@@ -101,7 +101,8 @@ export abstract class Codec<O = unknown, I = O, Ctx = unknown> {
    * @returns The decoded value.
    */
   decode(this: Standalone, bytes: Uint8Array, offset = 0): O {
-    return decodeAt(this as never, cursor(bytes, offset));
+    const cur = cursor(bytes, offset);
+    return (this as unknown as AnyCodec).decoder()(cur) as O;
   }
 
   /**
@@ -251,17 +252,6 @@ function cursor(bytes: Uint8Array, offset: number): Cursor {
   return { bytes, view: viewOf(bytes), offset, end: bytes.length, final: true };
 }
 
-/**
- * Decodes a value of `codec` at the cursor, and moves the cursor past it.
- *
- * @param codec The codec of the value.
- * @param cur The cursor, at the start of the value.
- * @returns The decoded value.
- */
-export function decodeAt<O>(codec: Codec<O, never>, cur: Cursor): O {
-  return codec.decoder()(cur) as O;
-}
-
 /** Reads consecutive values from `bytes`. */
 export class Reader {
   readonly #cur: Cursor;
@@ -298,7 +288,7 @@ export class Reader {
   read<O>(codec: Codec<O, never>): O {
     const start = this.#cur.offset;
     try {
-      return decodeAt(codec, this.#cur);
+      return codec.decoder()(this.#cur) as O;
     } catch (e) {
       this.#cur.offset = start;
       throw e;
