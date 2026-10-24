@@ -219,4 +219,35 @@ describe("Fields around codecs", () => {
     parser.decode(hex("01 02 03"));
     expect(seen).toStrictEqual([["a"], ["a"]]);
   });
+
+  it("are those of the cases of merged matches", async () => {
+    const seen = new Set<string>();
+    const parser = bin()
+      .u8("t")
+      .merge(
+        match("t")
+          .case(1, bin().u8("a"))
+          .case(
+            2,
+            bin()
+              .u8("u")
+              .merge(match("u").case(1, bin().u8("p")).case(2, bin().u8("q"))),
+          ),
+      )
+      .field(
+        "x",
+        bytes((o) => {
+          seen.add(Object.keys(o).join(","));
+          return "a" in o ? 1 : 2;
+        }),
+      );
+    await roundtrip(parser, "01 05 09", { t: 1, a: 5, x: hex("09") });
+    await roundtrip(parser, "02 01 07 08 09", {
+      t: 2,
+      u: 1,
+      p: 7,
+      x: hex("08 09"),
+    });
+    expect(seen).toStrictEqual(new Set(["t,a", "t,u,p"]));
+  });
 });

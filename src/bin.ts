@@ -917,19 +917,23 @@ function emitCases(
       if (!shared.has(name)) shared.set(name, g.hoist());
     }
   }
-  const branch = g.mode === "encode" ? "" : g.hoist();
-  const outer = g.fields;
+  const branch = g.hoist();
+  const { fields: outer, present: around } = g;
   const parts: Piece[][] = [];
+  // The cases setting each field, and when it is present in them.
+  const sets = new Map<string, [i: number, when: string | undefined][]>();
   match.emitSwitch(g, (_codec, i) => {
     g.fields = new Map(outer);
+    g.present = new Map(around);
     const own = emit(structs[i]);
     for (const [name, v] of g.fields) {
       if (shared.has(name) && outer.get(name) !== v) {
         g.line(`${shared.get(name)} = ${v};`);
+        sets.set(name, [...(sets.get(name) ?? []), [i, g.present.get(name)]]);
       }
     }
-    if (branch) {
-      g.line(`${branch} = ${i};`);
+    g.line(`${branch} = ${i};`);
+    if (g.mode !== "encode") {
       parts[i] = own.map((part) =>
         "branch" in part
           ? part
@@ -938,7 +942,23 @@ function emitCases(
     }
   });
   g.fields = new Map(outer);
-  for (const [name, v] of shared) g.fields.set(name, v);
+  g.present = new Map(around);
+  for (const [name, v] of shared) {
+    g.fields.set(name, v);
+    // Fields set by every case (whatever their nested matches) are present.
+    const setters = sets.get(name) ?? [];
+    if (
+      setters.length < structs.length ||
+      setters.some(([, when]) => when !== undefined)
+    ) {
+      const conditions = setters.map(([i, when]) =>
+        when === undefined
+          ? `${branch} === ${i}`
+          : `(${branch} === ${i} && ${when})`,
+      );
+      g.present.set(name, conditions.join(" || ") || "false");
+    }
+  }
   return { branch, cases: parts };
 }
 

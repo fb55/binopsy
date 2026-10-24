@@ -133,6 +133,8 @@ export class Gen {
   readonly mode: Mode;
   /** Locals holding the fields of the parser being compiled (when encoding, the values being encoded). */
   fields = new Map<string, string>();
+  /** When fields of merged matches are present (those of other cases are not), by name. */
+  present = new Map<string, string>();
   /** The object holding the fields around the parser, if it gets them. */
   readonly scope: string | undefined;
   /** The field being emitted (for errors). */
@@ -338,15 +340,16 @@ export class Gen {
    * @returns What `emit` returns.
    */
   inline<T>(emit: () => T): T {
-    const { fields, field, indexes, prefix } = this;
+    const { fields, present, field, indexes, prefix } = this;
     this.prefix = this.pathOf();
     this.indexes = [];
     this.fields = new Map(fields);
+    this.present = new Map(present);
     this.field = undefined;
     try {
       return emit();
     } finally {
-      Object.assign(this, { fields, field, indexes, prefix });
+      Object.assign(this, { fields, present, field, indexes, prefix });
     }
   }
 
@@ -501,11 +504,20 @@ export class Gen {
       if (name !== ALL_FIELDS) named.set(name, this.ref(name));
     }
     const all = reads.includes(ALL_FIELDS);
-    const entries = [...(all ? this.fields : named)].map(
-      ([name, v]) => `${JSON.stringify(name)}: ${v}`,
-    );
+    const fields = [...(all ? this.fields : named)];
+    // Fields from the first one of a merged match on are added if present.
+    const i = fields.findIndex(([name]) => this.present.has(name));
+    const entries = fields
+      .slice(0, i === -1 ? undefined : i)
+      .map(([name, v]) => `${JSON.stringify(name)}: ${v}`);
     if (all && this.scope !== undefined) entries.unshift(`...${this.scope}`);
-    return this.let(`{ ${entries.join(", ")} }`);
+    const object = this.let(`{ ${entries.join(", ")} }`);
+    for (const [name, v] of i === -1 ? [] : fields.slice(i)) {
+      const when = this.present.get(name);
+      const set = `${object}[${JSON.stringify(name)}] = ${v};`;
+      this.line(when === undefined ? set : `if (${when}) ${set}`);
+    }
+    return object;
   }
 
   /**
