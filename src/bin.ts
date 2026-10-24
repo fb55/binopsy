@@ -15,6 +15,7 @@ import {
 import { ALL_FIELDS, type Gen, type Reads, type Selection } from "./compile.ts";
 import {
   Match,
+  write,
   type Value,
   type matchTypes,
   type IsUnion,
@@ -890,12 +891,7 @@ class Parser extends Codec<Obj> {
         if (preset) {
           g.line(`if (${v} === undefined) ${v} = ${g.k(preset.value)};`);
         }
-        // Sizes of fixed-size fields are known without their values.
-        if (g.mode === "size" && Number.isFinite(codec.size)) {
-          g.skip(codec.size);
-        } else {
-          codec.emitWrite(g, v);
-        }
+        write(g, codec, v);
         g.fields.set(name, v);
       } else if (entry.kind === "group") {
         entry.struct.encodeFields(g, object, computed);

@@ -194,7 +194,7 @@ export class Match extends Codec {
       if (preset) {
         g.line(`if (${value} === undefined) ${value} = ${g.k(preset.value)};`);
       }
-      codec.emitWrite(g, value);
+      write(g, codec, value);
     });
   }
 
@@ -229,5 +229,26 @@ export class Match extends Codec {
       g.fail("no-match", `"no case for " + String(${tag})`);
     }
     g.line("}");
+  }
+}
+
+/**
+ * Emits code encoding `value` (in a variable, which later fields read); when
+ * sizing a value of a fixed size, only its size, unless a match may fill in
+ * the value's default.
+ *
+ * @param g The generator of the function.
+ * @param codec The codec of the value.
+ * @param value The variable holding the value.
+ */
+export function write(g: Gen, codec: AnyCodec, value: string): void {
+  if (
+    g.mode === "size" &&
+    Number.isFinite(codec.size) &&
+    !(codec instanceof Match)
+  ) {
+    g.skip(codec.size);
+  } else {
+    codec.emitWrite(g, value);
   }
 }

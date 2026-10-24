@@ -5,7 +5,9 @@ import {
   bin,
   bytes,
   custom,
+  literal,
   map,
+  match,
   refine,
   sized,
   string,
@@ -55,6 +57,16 @@ describe("Sizes", () => {
     ).toBe(2);
     expect(calls).toBe(0);
     expect(codec.encode(value)).toHaveLength(7);
+  });
+
+  it("get the defaults of matches for later fields", () => {
+    const codec = bin()
+      .u8("tag")
+      .field("n", match("tag").case(1, literal(u8, 3)))
+      .field("data", sized("n", bytes(Infinity)));
+    const value = { tag: 1 as const, data: new Uint8Array(3) };
+    expect(codec.sizeOf(value)).toBe(5);
+    expect(codec.encode(value)).toHaveLength(5);
   });
 });
 
