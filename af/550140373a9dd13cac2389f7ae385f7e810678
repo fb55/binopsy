@@ -1,0 +1,40 @@
+CHANGELOG.md
+  s_9822029f13e609::t_10b5827a9a0cce 12-47
+  s_9822029f13e609::t_4c2969bf9521b1 53
+src/bin.ts
+  s_9822029f13e609::t_cc40f782dc4835 615,892,935
+src/custom.ts
+  s_9822029f13e609::t_cc40f782dc4835 189-192,201
+test/helpers.ts
+  s_9822029f13e609::t_10b5827a9a0cce 72
+src/codecs.ts
+  s_9822029f13e609::t_cc40f782dc4835 208,741-744,795-799,923-926,1053-1057,1074
+src/codec.ts
+  s_9822029f13e609::t_cc40f782dc4835 51,237-239
+  s_9822029f13e609::t_fa6d44831209d1 91,160-171
+  s_9822029f13e609::t_b5f77b333d0087 172-174
+README.md
+  s_9822029f13e609::t_10b5827a9a0cce 275,453
+src/primitives.ts
+  s_9822029f13e609::t_cc40f782dc4835 123,127
+src/compile.ts
+  s_9822029f13e609::t_fa6d44831209d1 37-38,65,162-179,256,469,499,570-571,608,622-623
+  s_9822029f13e609::t_cc40f782dc4835 572-580,624
+  s_9822029f13e609::t_a5c74dd3c1a3be 387-389,395
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "af550140373a9dd13cac2389f7ae385f7e810678",
+  "prompts": {},
+  "sessions": {
+    "s_9822029f13e609": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8444603f-d257-481a-a71b-1dce68106d54",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Felix Boehm <188768+fb55@users.noreply.github.com>"
+    }
+  }
+}
