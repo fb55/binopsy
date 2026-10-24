@@ -807,9 +807,15 @@ class Parser extends Codec<Obj> {
     output: ReadonlySet<string>,
   ): number {
     const fields = bitRun(this.entries, i);
-    const bytes = Math.ceil(fields.reduce((n, f) => n + f.width, 0) / 8);
+    // The byte each field ends in, for errors.
+    let end = 0;
+    const ends = fields.map(({ name, width }): [string, number] => [
+      name,
+      Math.ceil((end += width) / 8),
+    ]);
+    const bytes = Math.ceil(end / 8);
     g.field = undefined;
-    g.need(bytes);
+    g.need(bytes, ends);
     let offset = 0;
     for (const [j, field] of fields.entries()) {
       g.field = field.name;

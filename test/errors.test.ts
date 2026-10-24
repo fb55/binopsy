@@ -35,6 +35,12 @@ describe("Decoding errors", () => {
       { code: "end-of-input", path: ["id"], offset: 0 },
     ],
     [
+      "are located in bit fields",
+      bin().u8("x").bits("a", 4).bits("b", 4).bits("c", 8),
+      "09 01",
+      { code: "end-of-input", path: ["c"], offset: 2 },
+    ],
+    [
       "are located in items",
       bin().u32le("id").field("items", array(Item, u8)),
       "01000000 02 01 01 61 02 02",
