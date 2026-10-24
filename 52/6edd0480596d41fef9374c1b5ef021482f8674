@@ -1,0 +1,29 @@
+src/codecs.ts
+  s_9822029f13e609::t_43ca72e71a1256 9-15
+  s_97990aed656ded::t_85927ad2238834 1000-1016
+  s_9822029f13e609::t_dc6b5ddb5f8b05 999
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "526edd0480596d41fef9374c1b5ef021482f8674",
+  "prompts": {},
+  "sessions": {
+    "s_97990aed656ded": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a16cdc-2031-7be0-a714-1b18228252fe",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Felix Boehm <188768+fb55@users.noreply.github.com>"
+    },
+    "s_9822029f13e609": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8444603f-d257-481a-a71b-1dce68106d54",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Felix Boehm <188768+fb55@users.noreply.github.com>"
+    }
+  }
+}
