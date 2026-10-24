@@ -29,11 +29,7 @@ export function decodeStream<O>(
   if (codec.size === 0) {
     throw new TypeError("values of no bytes cannot be streamed");
   }
-  const chunks =
-    Symbol.asyncIterator in source
-      ? source[Symbol.asyncIterator]()
-      : source[Symbol.iterator]();
-  return new Values<O>(codec, chunks);
+  return new Values<O>(codec, source);
 }
 
 /** The values of a stream; values in the chunks read so far are returned without waiting. */
@@ -65,12 +61,19 @@ class Values<O> implements AsyncIterableIterator<O, undefined> {
   private closed = false;
   private closing: Promise<void> | undefined;
 
-  constructor(codec: AnyCodec, chunks: Chunks) {
+  constructor(
+    codec: AnyCodec,
+    source: AsyncIterable<Uint8Array> | Iterable<Uint8Array>,
+  ) {
     this.decode = compile(codec, "decode", "all");
     this.resume = compile(codec, "resume", "all") as (
       cur: Cursor,
     ) => Generator<number, O>;
-    this.chunks = chunks;
+    // After compiling, which may throw: iterating locks web streams.
+    this.chunks =
+      Symbol.asyncIterator in source
+        ? source[Symbol.asyncIterator]()
+        : source[Symbol.iterator]();
   }
 
   [Symbol.asyncIterator](): this {
