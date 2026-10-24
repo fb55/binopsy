@@ -7,8 +7,10 @@ import {
   lazy,
   literal,
   map,
+  match,
   optional,
   refine,
+  string,
   u16le,
   u8,
   when,
@@ -131,6 +133,47 @@ describe("Parsers", () => {
       expect(b.encode(value)).toStrictEqual(wire);
     },
   );
+});
+
+describe("Padding", () => {
+  const Chunk = bin().field("data", string(u8)).align(4);
+
+  it.each<Case>([
+    [
+      "skips bytes",
+      bin().u8("a").skip(3).u8("b"),
+      "01 000000 02",
+      { a: 1, b: 2 },
+    ],
+    [
+      "aligns after fields of fixed sizes",
+      bin().u8("a").align(4).u8("b"),
+      "01 000000 02",
+      { a: 1, b: 2 },
+    ],
+    [
+      "aligns from the start of each parser",
+      bin().u8("n").field("chunks", array(Chunk, "n")),
+      "02 03 616263 01 61 0000",
+      { n: 2, chunks: [{ data: "abc" }, { data: "a" }] },
+    ],
+    [
+      "aligns merged parsers and cases from their own start",
+      bin()
+        .u8("t")
+        .merge(Chunk)
+        .merge(match("t").case(1, bin().field("s", string(u8)).align(2))),
+      "01 0161 0000 026263 00",
+      { t: 1, data: "a", s: "bc" },
+    ],
+  ])("%s", (_, codec, bytes, value) => roundtrip(codec, bytes, value));
+
+  it("are zeros when encoding into any buffer", () => {
+    const into = new Uint8Array(8).fill(0xff);
+    expect(Chunk.encodeInto({ data: "a" }, into)).toBe(4);
+    expect(into).toStrictEqual(hex("01 61 0000 ffffffff"));
+    expect(bin().u8("a").align(4).size).toBe(4);
+  });
 });
 
 describe("Literals", () => {

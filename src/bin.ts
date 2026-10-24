@@ -312,6 +312,12 @@ export interface Bin<T, I = T, Ctx = unknown>
         Ctx
       >;
 
+  /** Skips `size` bytes (zeros when encoding). */
+  skip(size: number): Bin<T, I, Ctx>;
+
+  /** Skips to the next multiple of `size` bytes from the start of the parser (zeros when encoding). */
+  align(size: number): Bin<T, I, Ctx>;
+
   /** Applies a function adding fields (a group of fields used in several parsers). */
   pipe<R>(f: (bin: this) => R): R;
 
@@ -378,7 +384,9 @@ type Entry =
   /** A match of parsers, whose fields are added. */
   | { readonly kind: "match"; readonly match: Match }
   /** A parser computing fields or decoding some, whose fields are added. */
-  | { readonly kind: "group"; readonly struct: Parser };
+  | { readonly kind: "group"; readonly struct: Parser }
+  /** Bytes skipped: `size` of them, or (`align`) up to a multiple of `size` from the start of the parser. */
+  | { readonly kind: "pad"; readonly size: number; readonly align: boolean };
 
 /**
  * The names of fields an entry adds (of every case).
@@ -397,6 +405,9 @@ function names(entry: Entry, definite = false): string[] {
     }
     case "group": {
       return entry.struct.names(definite);
+    }
+    case "pad": {
+      return [];
     }
     default: {
       return [entry.name];
@@ -485,6 +496,9 @@ class Parser extends Codec<Obj> {
       if (entry.kind === "bits") {
         size += Math.ceil((bits + entry.width) / 8) - Math.ceil(bits / 8);
         bits += entry.width;
+      } else if (entry.kind === "pad") {
+        size += entry.align ? Number.NaN : entry.size;
+        bits = 0;
       } else {
         const codec =
           entry.kind === "field"
@@ -505,6 +519,15 @@ class Parser extends Codec<Obj> {
     this.order = order;
     this.computes = computes;
     this.selection = selection;
+  }
+
+  /**
+   * Whether it aligns fields after fields of varying sizes.
+   *
+   * @returns `true` if it does, from its start.
+   */
+  private get aligns(): boolean {
+    return this.entries.some((entry) => entry.kind === "pad" && entry.align);
   }
 
   /**
@@ -532,10 +555,28 @@ class Parser extends Codec<Obj> {
     return this.add([{ kind: "bits", name, width, order: this.order }]);
   }
 
+  skip(size: number): Parser {
+    if (!(Number.isSafeInteger(size) && size >= 0)) {
+      throw new RangeError(`invalid size ${String(size)}`);
+    }
+    return this.add([{ kind: "pad", size, align: false }]);
+  }
+
+  align(size: number): Parser {
+    if (!(Number.isSafeInteger(size) && size >= 1)) {
+      throw new RangeError(`invalid alignment ${String(size)}`);
+    }
+    // After fields of fixed sizes, the bytes to skip are known.
+    return Number.isFinite(this.size)
+      ? this.skip((size - (this.size % size)) % size)
+      : this.add([{ kind: "pad", size, align: true }]);
+  }
+
   merge(other: unknown): Parser {
     if (other instanceof Parser) {
+      // Parsers aligning fields keep their start.
       return this.add(
-        other.computes || other.selection
+        other.computes || other.selection || other.aligns
           ? [{ kind: "group", struct: other }]
           : other.entries,
       );
@@ -685,10 +726,13 @@ class Parser extends Codec<Obj> {
     const parts: Piece[] = [];
     const want = (name: string, i: number): boolean =>
       own.has(name) || after[i].has(name);
+    const start = this.aligns ? g.let(valueOffset(g)) : "";
     for (let i = 0; i < entries.length; i++) {
       const entry = entries[i];
       if (entry.kind === "bits") {
         i = this.decodeBits(g, i, want, parts, output);
+      } else if (entry.kind === "pad") {
+        pad(g, entry, start);
       } else if (entry.kind === "field") {
         const { name, codec } = entry;
         if (Number.isFinite(codec.size) && !g.available(codec.size)) {
@@ -819,10 +863,13 @@ class Parser extends Codec<Obj> {
       }
     }
     const { entries } = this;
+    const start = this.aligns ? g.let(valueOffset(g)) : "";
     for (let i = 0; i < entries.length; i++) {
       const entry = entries[i];
       if (entry.kind === "bits") {
         i = this.encodeBits(g, i, object, computed);
+      } else if (entry.kind === "pad") {
+        pad(g, entry, start);
       } else if (entry.kind === "field") {
         const { name, codec } = entry;
         if (Number.isFinite(codec.size) && !g.available(codec.size)) {
@@ -998,13 +1045,46 @@ function emitCases(
 }
 
 /**
+ * Emits code skipping bytes (writing zeros when encoding).
+ *
+ * @param g The generator of the function.
+ * @param entry The bytes: a number of them, or an alignment.
+ * @param start The variable of the offset of the parser in the value.
+ */
+function pad(
+  g: Gen,
+  entry: Extract<Entry, { kind: "pad" }>,
+  start: string,
+): void {
+  const { size } = entry;
+  g.field = undefined;
+  const n = entry.align
+    ? g.let(`(${size} - (${valueOffset(g)} - ${start}) % ${size}) % ${size}`)
+    : size;
+  g.need(n);
+  if (g.encoding) g.write(`buf.fill(0, ${g.at()}, ${g.at(n)});`);
+  g.skip(n);
+}
+
+/**
+ * An expression of the current offset in the value being decoded or encoded
+ * (which a growing writer moves in its buffer).
+ *
+ * @param g The generator of the function.
+ * @returns The offset in the input, or in the bytes being written.
+ */
+function valueOffset(g: Gen): string {
+  return g.encoding ? `${g.at()} - w.base` : g.at();
+}
+
+/**
  * The fields an entry reads.
  *
  * @param entry The entry of a parser.
  * @returns The fields its codec reads (none for bit fields).
  */
 function readsOf(entry: Entry): Reads {
-  if (entry.kind === "bits") return [];
+  if (entry.kind === "bits" || entry.kind === "pad") return [];
   return (
     entry.kind === "field"
       ? entry.codec

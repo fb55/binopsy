@@ -51,6 +51,7 @@ Formats keep their bytes with the rewrites below (except where noted), but not t
 - Types: the decoded and encoded values are inferred (`Output<typeof parser>`, `Input<typeof parser>`); lengths, tags and functions are checked against the fields before them, and editors complete the names of fields.
 - `parser.pick(...fields)` decodes some fields and steps over the others; `Reader` decodes consecutive values.
 - `codec.sizeOf(value)` computes the size of a value without encoding it.
+- `.skip(n)` steps over reserved bytes (0.0.0 did not support `.skip`), and `.align(n)` over those up to a multiple of `n` bytes from the start of the parser.
 - Computed fields (`.computed`) and literals may be omitted when encoding; counts read before a value are written from it (also the size of a region, after it).
 - Parsers can read fields of the parser they are added to: `bin<{ length: number }>()`.
 - `optional(flag, codec)` and `when(condition, codec)` for values that may be absent; `lazy` for recursive formats; `custom` for formats of your own; `fail` for unsupported parts.

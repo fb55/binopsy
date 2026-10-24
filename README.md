@@ -85,6 +85,7 @@ const { width, height } = Header.decode(png.chunks[0].data);
 - A length is a number, the name of an earlier field (`bytes("length")`), a function of the earlier fields, or a codec of a count read just before the value (`string(u8)`). See [lengths](#lengths).
 - `array(item, { until })` reads up to the first item for which `until` is true, and includes it.
 - `bytes` values view the input: `new Uint8Array(bytes)` copies one.
+- `.skip(n)` steps over `n` reserved bytes, and `.align(n)` over those up to a multiple of `n` bytes from the start of the parser: a RIFF chunk, `bin().field("id", string(4)).u32le("size").field("data", bytes("size")).align(2)`, takes an even number of bytes. Encoding writes zeros.
 - `decode(bytes, offset)` decodes a value at an offset, such as an index whose offset the header gives. Bytes after the value are ignored.
 
 ## Optional and versioned parts
@@ -420,6 +421,7 @@ const Record = bin().u8("count").pipe(withValues);
 - `.bits(name, width)` adds a field of 1 to 53 bits.
 - `.field(name, codec)` adds a field of any codec, including parsers and matches.
 - `.merge(parser)` adds the fields of another parser, of one of several (`cond ? A : B`), or of the cases of a match of parsers.
+- `.skip(size)` skips bytes, and `.align(size)` skips to a multiple of `size` bytes from the start of the parser (a merged parser aligns from its own start); encoding writes zeros.
 - `.pipe(f)` applies a function adding fields.
 - `.computed(name, f)` and `.computed({ … })` compute fields when encoding; they end the parser.
 - `.pick(...names)` is a decoder of only the named fields.

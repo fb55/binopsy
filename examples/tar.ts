@@ -20,7 +20,6 @@ import {
   bytes,
   decodeStream,
   map,
-  sized,
   string,
   type Codec,
   type Input,
@@ -68,11 +67,9 @@ export const Entry = bin()
   .field("devmajor", octal(8))
   .field("devminor", octal(8))
   .field("prefix", string(155, { terminator: 0 })) // The directories of `name`, if they do not fit in it
-  .field("unused", bytes(12))
-  .field(
-    "data", // Padded to whole blocks
-    sized((entry) => Math.ceil(entry.size / 512) * 512, bytes("size")),
-  )
+  .skip(12)
+  .field("data", bytes("size"))
+  .align(512) // Whole blocks
   .computed({ size: (entry) => entry.data.length });
 
 /**
@@ -109,7 +106,6 @@ function* entries(path: string): Generator<Uint8Array> {
     devmajor: 0,
     devminor: 0,
     prefix: "",
-    unused: new Uint8Array(12),
     data: directory ? new Uint8Array(0) : readFileSync(path),
   });
   if (directory) {
