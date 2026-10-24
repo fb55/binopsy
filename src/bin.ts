@@ -918,18 +918,17 @@ function emitCases(
     }
   }
   const branch = g.hoist();
-  const { fields: outer, present: around } = g;
+  const outer = g.fields;
   const parts: Piece[][] = [];
   // The cases setting each field, and when it is present in them.
   const sets = new Map<string, [i: number, when: string | undefined][]>();
   match.emitSwitch(g, (_codec, i) => {
     g.fields = new Map(outer);
-    g.present = new Map(around);
     const own = emit(structs[i]);
     for (const [name, v] of g.fields) {
       if (shared.has(name) && outer.get(name) !== v) {
         g.line(`${shared.get(name)} = ${v};`);
-        sets.set(name, [...(sets.get(name) ?? []), [i, g.present.get(name)]]);
+        sets.set(name, [...(sets.get(name) ?? []), [i, g.present.get(v)]]);
       }
     }
     g.line(`${branch} = ${i};`);
@@ -942,22 +941,32 @@ function emitCases(
     }
   });
   g.fields = new Map(outer);
-  g.present = new Map(around);
   for (const [name, v] of shared) {
     g.fields.set(name, v);
     // Fields set by every case (whatever their nested matches) are present.
     const setters = sets.get(name) ?? [];
     if (
-      setters.length < structs.length ||
-      setters.some(([, when]) => when !== undefined)
+      setters.length === structs.length &&
+      setters.every(([, when]) => when === undefined)
     ) {
-      const conditions = setters.map(([i, when]) =>
-        when === undefined
-          ? `${branch} === ${i}`
-          : `(${branch} === ${i} && ${when})`,
-      );
-      g.present.set(name, conditions.join(" || ") || "false");
+      continue;
     }
+    let when = setters
+      .map(([i, inner]) =>
+        inner === undefined
+          ? `${branch} === ${i}`
+          : `(${branch} === ${i} && (${inner}))`,
+      )
+      .join(" || ");
+    // In other cases, a field around the parser of the same name is seen.
+    const around = outer.get(name);
+    if (around !== undefined) {
+      g.line(`if (!(${when || "false"})) ${v} = ${around};`);
+      const inherited = g.present.get(around);
+      if (inherited === undefined) continue;
+      when = `${when} || (${inherited})`;
+    }
+    g.present.set(v, when || "false");
   }
   return { branch, cases: parts };
 }

@@ -250,4 +250,49 @@ describe("Fields around codecs", () => {
     });
     expect(seen).toStrictEqual(new Set(["t,a", "t,u,p"]));
   });
+
+  it("are kept apart in inlined parsers, picked groups and array items", async () => {
+    const seen = new Set<unknown>();
+    const spy = match((o: object) => {
+      seen.add("a" in o ? o.a : "-");
+      return 0;
+    }).case(0, u8);
+    const tagged = bin()
+      .u8("t")
+      .merge(match("t").case(1, bin().u8("a")).case(2, bin().u8("b")));
+    // The field of an inlined parser, of the name of a case's field.
+    await roundtrip(
+      tagged.field("inner", bin().u8("a").field("x", spy)),
+      "02 05 07 00",
+      { t: 2, b: 5, inner: { a: 7, x: 0 } },
+    );
+    expect(seen).toStrictEqual(new Set([7]));
+    // A field after a group that hides one of its name.
+    seen.clear();
+    bin()
+      .merge(tagged.pick("t"))
+      .u8("a")
+      .field("x", spy)
+      .decode(hex("02 05 07 00"));
+    expect(seen).toStrictEqual(new Set([7]));
+    // Items taking other cases than the ones before.
+    seen.clear();
+    const nested = bin()
+      .u8("u")
+      .merge(
+        match("u")
+          .case(0, bin().u8("a"))
+          .case(1, bin().u8("a"))
+          .case(2, bin().u8("b")),
+      );
+    const element = bin()
+      .u8("t")
+      .merge(match("t").case(0, nested).case(1, bin().u16le("z")))
+      .field("x", spy);
+    await roundtrip(array(element, 2), "00 01 07 00 01 08 00 00", [
+      { t: 0, u: 1, a: 7, x: 0 },
+      { t: 1, z: 8, x: 0 },
+    ]);
+    expect(seen).toStrictEqual(new Set([7, "-"]));
+  });
 });
