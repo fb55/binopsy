@@ -1,0 +1,28 @@
+bench/compare/worker.mjs
+  s_5d2065b5ace670::t_644df664a82abd 115-118,120,123
+bench/compare/run.py
+  s_5d2065b5ace670::t_2dea1c0f18c4e1 25,35
+bench/compare/extra.mjs
+  s_5d2065b5ace670::t_644df664a82abd 82-87,90
+bench/compare/README.md
+  s_5d2065b5ace670::t_8fc7b6db275422 5,12,21-24,115-118
+  s_5d2065b5ace670::t_644df664a82abd 43-44
+bench/compare/binopsy.mjs
+  s_5d2065b5ace670::t_8fc7b6db275422 1,6-10
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9acc7974fad708198109fcd5b8f5bb00e12bf573",
+  "prompts": {},
+  "sessions": {
+    "s_5d2065b5ace670": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a17005-48af-7e53-b7a5-a6c5e68e5a7f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": null
+    }
+  }
+}
