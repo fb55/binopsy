@@ -1,0 +1,25 @@
+test/decode.test.ts
+  s_9822029f13e609::t_f832b7f1d115e2 40-53
+src/bin.ts
+  s_9822029f13e609::t_f832b7f1d115e2 1043
+src/codecs.ts
+  s_9822029f13e609::t_f832b7f1d115e2 1022-1023,1032,1038
+src/compile.ts
+  s_9822029f13e609::t_f832b7f1d115e2 178,183,187-208,436,444
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2840bd5758e30c6bd959d98012a18aa287979652",
+  "prompts": {},
+  "sessions": {
+    "s_9822029f13e609": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8444603f-d257-481a-a71b-1dce68106d54",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Felix Boehm <188768+fb55@users.noreply.github.com>"
+    }
+  }
+}
