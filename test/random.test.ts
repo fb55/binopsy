@@ -197,9 +197,9 @@ describe("Seeded random schemas", () => {
         const kind = rnd(4);
         if (kind === 0) {
           const width = 1 + rnd(53);
-          // Random top bits (all of them, up to 32).
-          const value =
-            rnd(2 ** Math.min(width, 32)) * 2 ** Math.max(width - 32, 0);
+          // Random bits, from two parts beyond 32 bits.
+          const low = 2 ** Math.max(width - 32, 0);
+          const value = rnd(2 ** Math.min(width, 32)) * low + rnd(low);
           codec = codec.bits(name, width);
           input[name] = value;
           output[name] = value;
