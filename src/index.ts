@@ -1,10 +1,12 @@
 export {
   Reader,
+  trace,
   type AnyCodec,
   type Codec,
   type Context,
   type Input,
   type Output,
+  type Span,
 } from "./codec.ts";
 export { DecodeError, EncodeError, type Path } from "./errors.ts";
 export {

@@ -740,7 +740,9 @@ class Parser extends Codec<Obj> {
           g.need(...run(entries, i));
         }
         g.field = name;
+        const from = g.mode === "trace" ? g.let(g.at()) : "";
         const v = codec.emitRead(g, want(name, i));
+        if (from) g.trace(from, v);
         if (v) g.fields.set(name, v);
         if (output.has(name)) parts.push({ name, v });
       } else if (entry.kind === "group") {
@@ -812,6 +814,7 @@ class Parser extends Codec<Obj> {
       if (want(field.name, i + j)) {
         g.field = field.name;
         const v = g.let(extract(g.at(), field.order, offset, field.width));
+        if (g.mode === "trace") g.trace(g.at(), v, g.at(bytes));
         g.fields.set(field.name, v);
         if (output.has(field.name)) parts.push({ name: field.name, v });
       }

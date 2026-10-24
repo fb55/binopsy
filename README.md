@@ -502,6 +502,8 @@ A literal keeps its default (and may be omitted) through `sized` and `lazy`, but
 
 `codec.decode(bytes, offset?)` decodes a value at `offset`, ignoring the bytes after it. `new Reader(bytes, offset?)` reads consecutive values: `reader.read(codec)` returns one and moves `reader.offset` past it (if it fails, the offset stays), and `reader.done` tells whether all bytes were read.
 
+`trace(codec, bytes, offset?)` decodes a value and returns where each field of its parsers is, to annotate or compare bytes: `{ path, start, end, value }` for every field, after the fields inside it (`["items", 0, "name"]`, then `["items"]`). Bit fields have the bytes of their run.
+
 `codec.encode(value)` returns a view of the bytes. Small results share a buffer with other results (as Node.js does for small `Buffer`s), but are never overwritten. Results are views of `ArrayBuffer`s (never of shared memory), so they work with `Blob`, `Response` and Web Crypto. `codec.encodeInto(value, bytes, offset?)` writes to `bytes` instead, and returns the offset after the value. Inputs and the bytes of `encodeInto` may be shared memory, but values must not be views of the bytes it writes to. Values being encoded are never changed.
 
 Computed fields: with an object of functions, `.computed({ size: …, count: … })`, each function gets the value without the computed fields (and without filled-in literals), so they do not see each other's results. Results must not be `undefined`, and a value given for a computed field must be the computed one (as by `Object.is`). Merged into another parser, a parser computing fields still computes them from its own fields.

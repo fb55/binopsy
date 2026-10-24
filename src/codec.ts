@@ -13,7 +13,7 @@ import {
   type Reads,
   type Selection,
 } from "./compile.ts";
-import { EncodeError } from "./errors.ts";
+import { EncodeError, type Path } from "./errors.ts";
 
 /** Types only: the key of a codec's types (not a property at run time). */
 export declare const types: unique symbol;
@@ -227,6 +227,40 @@ export interface Cursor {
   offset: number;
   end: number;
   final: boolean;
+  /** Where the fields decoded are, when tracing. */
+  trace?: Span[];
+}
+
+/** Where a field was decoded from. */
+export interface Span {
+  /** The field names and array indexes of the field. */
+  path: Path;
+  /** The offset of its first byte. */
+  start: number;
+  /** The offset after its last byte (bit fields have the bytes of their run). */
+  end: number;
+  /** Its value. */
+  value: unknown;
+}
+
+/**
+ * Decodes the value of `codec` at `offset` in `bytes`, recording where each
+ * field of its parsers is (e.g. to annotate the bytes).
+ *
+ * @param codec The codec of the value.
+ * @param bytes The bytes to decode.
+ * @param offset Where the value starts.
+ * @returns The fields, in the order they were decoded.
+ */
+export function trace(
+  codec: Standalone,
+  bytes: Uint8Array,
+  offset = 0,
+): Span[] {
+  const cur = cursor(bytes, offset);
+  cur.trace = [];
+  compile(codec as unknown as AnyCodec, "trace", "all")(cur);
+  return cur.trace;
 }
 
 /**

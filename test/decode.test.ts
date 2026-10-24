@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  array,
   bin,
   bytes,
   custom,
@@ -9,9 +10,34 @@ import {
   Reader,
   sized,
   string,
+  trace,
   u8,
 } from "../src/index.ts";
 import { hex, type Standalone } from "./helpers.ts";
+
+describe("Traces", () => {
+  it("locate the fields of parsers, inlined or not", () => {
+    const Item = bin().u8("kind").field("name", string(u8));
+    const Packet = bin()
+      .bits("version", 4)
+      .bits("flags", 4)
+      .field("at", bin().u8("x"))
+      .field("items", array(Item, u8));
+    const spans = trace(Packet, hex("ff 13 05 01 01 01 61"), 1);
+    expect(
+      spans.map(({ path, start, end }) => [path, start, end]),
+    ).toStrictEqual([
+      [["version"], 1, 2],
+      [["flags"], 1, 2],
+      [["at", "x"], 2, 3],
+      [["at"], 2, 3],
+      [["items", 0, "kind"], 4, 5],
+      [["items", 0, "name"], 5, 7],
+      [["items"], 3, 7],
+    ]);
+    expect(spans.at(-1)!.value).toStrictEqual([{ kind: 1, name: "a" }]);
+  });
+});
 
 describe("Readers", () => {
   it("read consecutive values", () => {

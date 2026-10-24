@@ -16,7 +16,7 @@
  * Functions of codecs that read fields of the parser they are in (and do
  * not hold them) get those fields as an object, `s`.
  */
-import type { AnyCodec, Cursor, Writer } from "./codec.ts";
+import type { AnyCodec, Cursor, Span, Writer } from "./codec.ts";
 import {
   DecodeError,
   EncodeError,
@@ -34,8 +34,11 @@ export type Reads = readonly (string | typeof ALL_FIELDS)[];
 /** What a parser decodes: every field, or none (it only steps over the value). */
 export type Selection = "all" | "none";
 
-/** Sizing is encoding without writing (or checking): only the offset moves. */
-export type Mode = "decode" | "resume" | "encode" | "size";
+/**
+ * Tracing is decoding that records where each field is (in `cur.trace`);
+ * sizing is encoding without writing (or checking): only the offset moves.
+ */
+export type Mode = "decode" | "resume" | "trace" | "encode" | "size";
 
 export type Decoder = (cur: Cursor, scope?: object) => unknown;
 export type Encoder = (w: Writer, value: unknown, scope?: object) => void;
@@ -68,7 +71,7 @@ export function compile(
 ): Encoder;
 export function compile(
   codec: AnyCodec,
-  mode: "decode" | "resume",
+  mode: "decode" | "resume" | "trace",
   selection: Selection,
   inner?: boolean,
 ): Decoder;
@@ -166,6 +169,19 @@ export class Gen {
    */
   get encoding(): boolean {
     return this.mode === "encode" || this.mode === "size";
+  }
+
+  /**
+   * Emits code recording where the current field is, when tracing.
+   *
+   * @param start An expression of its offset.
+   * @param v The variable holding its value.
+   * @param end An expression of the offset after it.
+   */
+  trace(start: string, v: string, end = this.at()): void {
+    this.line(
+      `cur.trace.push({ path: ${this.path()}, start: ${start}, end: ${end}, value: ${v} });`,
+    );
   }
 
   /**
@@ -395,6 +411,7 @@ export class Gen {
         compile(codec, mode, arg === true ? "all" : "none", true),
       );
       v = this.let("undefined", "let");
+      const traced = mode === "trace" ? this.let("cur.trace.length") : "";
       this.line("cur.offset = o;");
       this.guard(
         `${v} = ${this.mode === "resume" ? "yield* " : ""}${fn}(cur${scope});`,
@@ -402,6 +419,10 @@ export class Gen {
       this.line(
         `o = cur.offset;${this.mode === "resume" ? ` ${this.reload()}` : ""}`,
       );
+      // The paths of the fields it traced are in the value.
+      if (traced) {
+        this.line(`${this.k(prefixed)}(cur.trace, ${traced}, ${this.path()});`);
+      }
     }
     this.checked = 0;
     return arg === true ? v : "";
@@ -644,6 +665,19 @@ export class Gen {
   private pathOf(): string[] {
     const field = this.field === undefined ? [] : [JSON.stringify(this.field)];
     return [...this.prefix, ...field, ...this.indexes];
+  }
+}
+
+/**
+ * Puts `path` before those of the spans traced from index `from` on.
+ *
+ * @param spans The spans traced.
+ * @param from The index of the first span to change.
+ * @param path The path of the value whose fields they are.
+ */
+function prefixed(spans: Span[], from: number, path: Path): void {
+  for (let i = from; i < spans.length; i++) {
+    spans[i].path = [...path, ...spans[i].path];
   }
 }
 
