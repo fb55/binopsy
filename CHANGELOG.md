@@ -25,7 +25,7 @@ Formats keep their bytes with the rewrites below (except where noted), but not t
 | `.string("s", { length: "n" })`, `{ encoding: "latin1" }`                    | `string("n")`, `string(n, { encoding: "latin1" })`; zero terminators of `utf16le` strings are 16-bit units          |
 | `{ encoding: "hex" }`, `"base64"`                                            | `map(bytes(length), …)` (text encodings: utf8, latin1, ascii, utf16le)                                              |
 | `.buffer("b", { length: "n" })`, `{ readUntil: "eof" }`                      | `bytes("n")`, `bytes(Infinity)` (`Uint8Array`s, viewing the input)                                                  |
-| `.buffer("b", { length: 4, clone: true })`                                   | `map(bytes(4), { decode: (b) => b.slice(), encode: (b) => b })`                                                     |
+| `.buffer("b", { length: 4, clone: true })`                                   | `map(bytes(4), { decode: (b) => new Uint8Array(b), encode: (b) => b })`                                             |
 | `.array("a", { type, length: "n" })`                                         | `array(type, "n")`, or `array(type, u8)` (the count is not a field, and is written from the array)                  |
 | `.array("a", { type, readUntil: "eof" })`, `{ readUntil: (item) => … }`      | `array(type, Infinity)`, `array(type, { until: (item) => … })` (the last item is included)                          |
 | `.array("a", { type, length, readUntil })`                                   | A `custom` codec (an array up to an item, or of a length, whichever comes first)                                    |
@@ -56,7 +56,7 @@ Formats keep their bytes with the rewrites below (except where noted), but not t
 - Strings: padding, terminators of any byte, and lengths of any kind.
 - 64-bit integers, as `bigint`; bit fields of up to 53 bits (#12).
 - Errors give the path of the field (e.g. `items[3].name`) and the offset.
-- Streams decode values spanning chunks without starting over, work with any async iterable, such as Node.js and web streams, and close their source when stopped.
+- Streams decode values spanning chunks without starting over at each chunk, work with any async iterable, such as Node.js and web streams, and close their source when stopped.
 - binopsy works in browsers: it uses `Uint8Array`s and `DataView`s instead of `Buffer`s.
 
 ### More to know when migrating

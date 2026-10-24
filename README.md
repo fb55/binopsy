@@ -80,11 +80,11 @@ const Header = bin()
 const { width, height } = Header.decode(png.chunks[0].data);
 ```
 
-- `literal(codec, value)` is a fixed value: decoding fails on any other, and encoding writes it, so it may be omitted. Values are numbers, strings, bigints or booleans.
+- `literal(codec, value)` is a fixed value: decoding fails on any other, and encoding writes it, so it may be omitted. Values are numbers, strings, bigints or booleans that the codec stores exactly (not `0.1` in an `f32le`).
 - Numbers are little (`le`) or big (`be`) endian, except `u8` and `i8`. 64-bit integers (`u64be`, `i64le`, …) are `bigint`s. Each number codec has a parser method: `.u32be("length")` is `.field("length", u32be)`.
 - A length is a number, the name of an earlier field (`bytes("length")`), a function of the earlier fields, or a codec of a count read just before the value (`string(u8)`). See [lengths](#lengths).
 - `array(item, { until })` reads up to the first item for which `until` is true, and includes it.
-- `bytes` values view the input: `slice()` one to copy it.
+- `bytes` values view the input: `new Uint8Array(bytes)` copies one.
 - `decode(bytes, offset)` decodes a value at an offset, such as an index whose offset the header gives. Bytes after the value are ignored.
 
 ## Optional and versioned parts
@@ -247,7 +247,7 @@ while (!reader.done) {
 
 ## Write messages and files
 
-Every codec encodes what it decodes. Counts and sizes read before a value are written from the value:
+Every codec encodes what it decodes, except picked parsers and codecs without `encode`. Counts and sizes read before a value are written from the value:
 
 ```ts
 Frame.encode({ type: 2, room: 7, text: "hi" });
@@ -304,6 +304,8 @@ const Tree: Codec<Tree> = bin()
 Some encodings are not fields of a fixed layout, such as variable-length integers. `custom` takes functions of your own:
 
 ```ts
+import { custom } from "binopsy";
+
 // Variable-length integers (LEB128) of up to 32 bits.
 const varint = custom({
   decode(input, final) {
@@ -334,6 +336,8 @@ const varint = custom({
 It works wherever a codec does, also as a length:
 
 ```ts
+import { array, bin, string } from "binopsy";
+
 const Entry = bin()
   .field("key", string(varint)) // A varint length, then the text
   .field("values", array(varint, varint)); // A varint count, then varints
@@ -343,7 +347,7 @@ Entry.encode({ key: "id", values: [1, 300] }); // Uint8Array [2, 105, 100, 2, 1,
 
 - `decode(bytes, final)` gets the bytes from the value on. It returns `{ value, bytesRead }`, or `undefined` if it needs more bytes and `final` is false (in a stream, more may follow).
 - It is then called again with more bytes, so it must have no side effects.
-- Given a `size`, `decode` gets exactly that many bytes. Without `encode`, the codec only decodes.
+- Given a `size`, `decode` gets exactly that many bytes, and `final` is true. Without `encode`, the codec only decodes.
 - For a conversion of bytes that other codecs read, `map` is enough: [examples/tar.ts](examples/tar.ts) reads octal numbers with a `map` of `bytes`.
 
 ## Malformed input
@@ -371,6 +375,8 @@ try {
 Parsers are codecs, so they nest: `.field("header", Header)`. `.merge(Header)` adds the fields of `Header` instead. A parser can also read fields of the parser it is merged into, which it declares:
 
 ```ts
+import { bin, bytes } from "binopsy";
+
 const Prefix = bin().u8("kind").u16le("length");
 const Payload = bin<{ length: number }>().field("body", bytes("length"));
 const Packet = Prefix.merge(Payload); // { kind: number; length: number; body: Uint8Array }
@@ -379,6 +385,8 @@ const Packet = Prefix.merge(Payload); // { kind: number; length: number; body: U
 A group of fields used in several parsers is a function of parsers, added with `.pipe`:
 
 ```ts
+import { bin, bytes, type Bin } from "binopsy";
+
 const withValues = <T extends { count: number }, I extends { count: number }>(
   b: Bin<T, I>,
 ) =>
@@ -425,7 +433,7 @@ Field names are unique: adding a name twice throws when the parser is defined (T
 | ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | `u8`, `i8`, `u16le`, `i32be`, `f32le`, `f64be`, … | Integers of 8, 16 and 32 bits and floats, little (`le`) or big (`be`) endian (`f32` rounds numbers to 32 bits)          |
 | `u64le`, `i64be`, …                               | 64-bit integers, as `bigint`                                                                                            |
-| `bytes(length)`                                   | `Uint8Array`s, viewing the input (`slice()` them to copy them)                                                          |
+| `bytes(length)`                                   | `Uint8Array`s, viewing the input (`new Uint8Array(b)` copies them)                                                      |
 | `string(length, options?)`                        | Strings stored in `length` bytes (see [strings](#strings))                                                              |
 | `string({ terminator, max?, encoding? })`         | Strings ending with a terminator, of at most `max` bytes                                                                |
 | `array(item, length)`                             | Arrays of `length` items                                                                                                |
