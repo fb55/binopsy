@@ -830,6 +830,15 @@ class List extends Codec<unknown[]> {
       return this.readUnbounded(g, wanted);
     }
     const n = readLength(g, length);
+    if (wanted && !(length instanceof Primitive && length.count)) {
+      // Arrays have up to 2^32 - 1 items (more may be stepped over).
+      const detail = '"more than 2^32 - 1 items"';
+      if (typeof n === "string") {
+        g.check(`${n} >= ${2 ** 32}`, "invalid", detail);
+      } else if (n >= 2 ** 32) {
+        g.fail("invalid", detail);
+      }
+    }
     const each = Number.isFinite(item.size) ? item.size : 0;
     if (Number.isFinite(item.size)) {
       // Items of a fixed size: one bounds check (and none read, if none checks anything).
