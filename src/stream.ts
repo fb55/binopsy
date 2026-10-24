@@ -70,10 +70,13 @@ class Values<O> implements AsyncIterableIterator<O, undefined> {
       cur: Cursor,
     ) => Generator<number, O>;
     // After compiling, which may throw: iterating locks web streams.
+    const iterate = (source as Partial<AsyncIterable<Uint8Array>>)[
+      Symbol.asyncIterator
+    ];
     this.chunks =
-      Symbol.asyncIterator in source
-        ? source[Symbol.asyncIterator]()
-        : source[Symbol.iterator]();
+      typeof iterate === "function"
+        ? iterate.call(source)
+        : (source as Iterable<Uint8Array>)[Symbol.iterator]();
   }
 
   [Symbol.asyncIterator](): this {

@@ -219,6 +219,13 @@ describe("Streams", () => {
     expect(returned).toBe(1);
   });
 
+  it("read sync iterables whose async iterator is undefined, as for await does", async () => {
+    const source = Object.assign([Uint8Array.of(1, 2)], {
+      [Symbol.asyncIterator]: undefined,
+    });
+    await expect(collect(u8, source)).resolves.toStrictEqual([1, 2]);
+  });
+
   it("close their source when returned, without waiting for a pending read", async () => {
     let release!: () => void;
     let returned = 0;
