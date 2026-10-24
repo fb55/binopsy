@@ -211,8 +211,8 @@ class Bytes extends Codec<Uint8Array> {
 }
 
 /**
- * Bytes of a length (in bytes), as views of the input: `slice()` them to copy
- * them.
+ * Bytes of a length (in bytes), as views of the input: `new Uint8Array(b)`
+ * copies them (`slice()` does not, for `Buffer`s).
  *
  * @param length The number of bytes, a codec of it, a field or a function.
  * @returns A codec of `Uint8Array`s.
