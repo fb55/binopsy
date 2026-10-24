@@ -385,34 +385,6 @@ export class Gen {
   }
 
   /**
-   * Emits a call decoding `codec` (if `wanted`) in the next `n` bytes, which
-   * are available: it may not read past them, and they are skipped after it.
-   *
-   * @param n The number of bytes, or an expression of it.
-   * @param codec The codec of the value in the bytes.
-   * @param wanted Whether the value is decoded (else it is stepped over).
-   * @returns The variable holding the value, or "" if it is not wanted.
-   */
-  region(n: number | string, codec: AnyCodec, wanted: boolean): string {
-    const fn = this.k(compile(codec, "decode", wanted ? "all" : "none", true));
-    const scope = scoped(codec) ? `, ${this.context(codec.reads)}` : "";
-    this.flush();
-    const [start, end, final, v] = [
-      this.let("o"),
-      this.let("cur.end"),
-      this.let("cur.final"),
-      this.let("undefined", "let"),
-    ];
-    this.line(`cur.offset = o; cur.end = o + ${n}; cur.final = true;`);
-    this.guard(
-      `${v} = ${fn}(cur${scope});`,
-      `cur.end = ${end}; cur.final = ${final};`,
-    );
-    this.seek(`${start} + ${n}`);
-    return wanted ? v : "";
-  }
-
-  /**
    * Emits code waiting for the end of the input; returns the number of bytes
    * left.
    *

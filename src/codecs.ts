@@ -6,7 +6,13 @@ import {
   type defaulted,
   type Obj,
 } from "./codec.ts";
-import { ALL_FIELDS, compile, type Gen, type Reads } from "./compile.ts";
+import {
+  ALL_FIELDS,
+  compile,
+  scoped,
+  type Gen,
+  type Reads,
+} from "./compile.ts";
 import { EncodeError } from "./errors.ts";
 import { Primitive } from "./primitives.ts";
 
@@ -990,7 +996,24 @@ class Sized extends Codec {
   emitRead(g: Gen, wanted: boolean): string {
     const n = readLength(g, this.length);
     g.need(n);
-    return g.region(n, this.inner, wanted);
+    // The value may not read past the region, and the bytes it leaves are skipped.
+    const codec = this.inner;
+    const fn = g.k(compile(codec, "decode", wanted ? "all" : "none", true));
+    const scope = scoped(codec) ? `, ${g.context(codec.reads)}` : "";
+    g.flush();
+    const [start, end, final, v] = [
+      g.let("o"),
+      g.let("cur.end"),
+      g.let("cur.final"),
+      g.let("undefined", "let"),
+    ];
+    g.line(`cur.offset = o; cur.end = o + ${n}; cur.final = true;`);
+    g.guard(
+      `${v} = ${fn}(cur${scope});`,
+      `cur.end = ${end}; cur.final = ${final};`,
+    );
+    g.seek(`${start} + ${n}`);
+    return wanted ? v : "";
   }
 
   emitWrite(g: Gen, value: string): void {
