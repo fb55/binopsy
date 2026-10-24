@@ -619,7 +619,7 @@ class Parser extends Codec<Obj> {
     const wanted =
       selection === "all" ? new Set(this.names()) : new Set<string>();
     const parts = this.decodeFields(g, wanted, new Set());
-    return selection === "none" ? "" : objectOf(parts);
+    return selection === "none" ? "" : objectOf(g, parts);
   }
 
   /**
@@ -774,7 +774,10 @@ class Parser extends Codec<Obj> {
         project,
         object,
         g.k(this.names().filter((n) => !this.computes!.some(([k]) => k === n))),
-        objectOf([...supplied].map(([name, v]) => ({ name, v }))),
+        objectOf(
+          g,
+          [...supplied].map(([name, v]) => ({ name, v })),
+        ),
       );
       for (const [name, compute] of this.computes) {
         g.field = name;
@@ -968,46 +971,51 @@ interface Cases {
 }
 
 /**
- * The expression of an object with `parts`: one object for each combination
- * of cases if they are few (objects of the same fields are faster), or else
- * one adding the fields of each case.
+ * Builds an object: complete literals for few combinations (faster for small
+ * objects), or assignments to avoid copying objects and linear case lookup.
  *
+ * @param g The generator of the function.
  * @param parts The fields, and the cases of matches, in order.
- * @returns An object literal, or a conditional expression of several.
+ * @param into An existing object to add the fields to.
+ * @returns An object expression, or the variable holding the object.
  */
-function objectOf(parts: readonly Piece[]): string {
+function objectOf(g: Gen, parts: readonly Piece[], into?: string): string {
   const combinations = parts.reduce(
     (n, part) => ("branch" in part ? n * part.cases.length : n),
     1,
   );
-  if (combinations > 16) {
-    const entries = parts.map((part) =>
-      "branch" in part
-        ? `...(${choice(part, (j) => objectOf(part.cases[j]))})`
-        : fieldOf(part),
-    );
-    return `{ ${entries.join(", ")} }`;
+  if (into !== undefined || combinations > 16) {
+    const object = into ?? g.let("{}");
+    for (const part of parts) {
+      if ("branch" in part) {
+        g.line(`switch (${part.branch}) {`);
+        for (const [j, fields] of part.cases.entries()) {
+          g.line(`case ${j}:`);
+          objectOf(g, fields, object);
+          g.line("break;");
+        }
+        g.line("}");
+      } else {
+        g.line(`${object}[${JSON.stringify(part.name)}] = ${part.v};`);
+      }
+    }
+    return object;
   }
   const i = parts.findIndex((part) => "branch" in part);
   if (i === -1) {
-    return `{ ${(parts as Field[]).map((part) => fieldOf(part)).join(", ")} }`;
+    const fields = (parts as Field[]).map(
+      ({ name, v }) => `${JSON.stringify(name)}: ${v}`,
+    );
+    return `{ ${fields.join(", ")} }`;
   }
   const match = parts[i] as Cases;
   return choice(match, (j) =>
-    objectOf([...parts.slice(0, i), ...match.cases[j], ...parts.slice(i + 1)]),
+    objectOf(g, [
+      ...parts.slice(0, i),
+      ...match.cases[j],
+      ...parts.slice(i + 1),
+    ]),
   );
-}
-
-/**
- * The property of a field in an object literal.
- *
- * @param field A decoded field.
- * @param field.name The name of the field.
- * @param field.v The variable holding its value.
- * @returns The code of the property, e.g. `"a": v0`.
- */
-function fieldOf({ name, v }: Field): string {
-  return `${JSON.stringify(name)}: ${v}`;
 }
 
 /**

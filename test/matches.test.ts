@@ -13,6 +13,8 @@ import {
   type Codec,
 } from "../src/index.ts";
 import {
+  bytewise,
+  collect,
   decodeFails,
   hex,
   roundtrip,
@@ -36,6 +38,32 @@ const Record = bin()
 const Flat = bin()
   .u8("kind")
   .merge(match("kind").case(1, bin().field("magic", literal(u8, 5))));
+
+/** More cases than the result builder enumerates as complete object literals. */
+const Wide = bin()
+  .u8("tag")
+  .merge(
+    match("tag")
+      .case(0, bin().u8("v0"))
+      .case(1, bin().u8("v1"))
+      .case(2, bin().u8("v2"))
+      .case(3, bin().u8("v3"))
+      .case(4, bin().u8("v4"))
+      .case(5, bin().u8("v5"))
+      .case(6, bin().u8("v6"))
+      .case(7, bin().u8("v7"))
+      .case(8, bin().u8("v8"))
+      .case(9, bin().u8("v9"))
+      .case(10, bin().u8("v10"))
+      .case(11, bin().u8("v11"))
+      .case(12, bin().u8("v12"))
+      .case(13, bin().u8("v13"))
+      .case(14, bin().u8("v14"))
+      .case(15, bin().u8("v15"))
+      .case(16, bin().u8("v16"))
+      .otherwise(bin()),
+  )
+  .u8("tail");
 
 describe("Matches", () => {
   it.each<[name: string, codec: Standalone, bytes: string, value: unknown]>([
@@ -106,6 +134,61 @@ describe("Matches", () => {
       { kind: 2, length: 1, id: 0x0302, tail: "x" },
     ],
   ])("%s", (_, codec, bytes, value) => roundtrip(codec, bytes, value));
+
+  it.each([0, 16, 255])("merge case %i of a large match", async (tag) => {
+    const present = tag !== 255;
+    const value = { tag, ...(present && { [`v${tag}`]: 7 }), tail: 9 };
+    const bytes = `${tag.toString(16).padStart(2, "0")} ${present ? "07" : ""} 09`;
+    await roundtrip(Wide, bytes, value);
+    expect(Object.keys(Wide.decode(hex(bytes)))).toStrictEqual(
+      Object.keys(value),
+    );
+  });
+
+  it.each([
+    ["03 07 02 08 09", { a: 3, a3: 7, b: 2, b2: 8, tail: 9 }],
+    ["04 03 09", { a: 4, b: 3, tail: 9 }],
+  ] as const)("merge twenty combinations from %s", async (bytes, value) => {
+    const parser = bin()
+      .u8("a")
+      .merge(
+        match("a")
+          .case(0, bin().u8("a0"))
+          .case(1, bin().u8("a1"))
+          .case(2, bin().u8("a2"))
+          .case(3, bin().u8("a3"))
+          .otherwise(bin()),
+      )
+      .u8("b")
+      .merge(
+        match("b")
+          .case(0, bin().u8("b0"))
+          .case(1, bin().u8("b1"))
+          .case(2, bin().u8("b2"))
+          .otherwise(bin()),
+      )
+      .u8("tail");
+    await roundtrip(parser, bytes, value);
+    expect(Object.keys(parser.decode(hex(bytes)))).toStrictEqual(
+      Object.keys(value),
+    );
+  });
+
+  it.each([
+    ["00 10 07 09 08", { head: 0, tag: 16, v16: 7, tail: 9, end: 8 }],
+    ["01 ff 09 08", { head: 1, tag: 255, tail: 9, end: 8 }],
+  ] as const)("merge nested combinations from %s", async (bytes, value) => {
+    const parser = bin()
+      .u8("head")
+      .merge(match("head").case(0, Wide).otherwise(Wide))
+      .u8("end");
+    const wire = hex(bytes);
+    expect(parser.decode(wire)).toStrictEqual(value);
+    expect(parser.encode(value)).toStrictEqual(wire);
+    await expect(collect(parser, bytewise(wire))).resolves.toStrictEqual([
+      value,
+    ]);
+  });
 
   it("are stepped over to pick the fields after them", () => {
     expect(
