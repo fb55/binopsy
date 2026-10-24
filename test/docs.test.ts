@@ -6,7 +6,7 @@ import { runInNewContext } from "node:vm";
 
 import { describe, expect, it } from "vitest";
 
-import { custom, type Codec } from "../src/index.ts";
+import { array, bin, custom, string, type Codec } from "../src/index.ts";
 import { node } from "./helpers.ts";
 
 describe("Examples", () => {
@@ -28,6 +28,12 @@ describe("Examples", () => {
     );
     expect(codec.encode(0xffffffff)).toStrictEqual(
       Uint8Array.of(255, 255, 255, 255, 15),
+    );
+    const Entry = bin()
+      .field("key", string(codec))
+      .field("values", array(codec, codec));
+    expect(Entry.encode({ key: "id", values: [1, 300] })).toStrictEqual(
+      Uint8Array.of(2, 105, 100, 2, 1, 172, 2),
     );
     expect(() => codec.decode(Uint8Array.of(255, 255, 255, 255, 127))).toThrow(
       /exceeds u32/u,
