@@ -194,10 +194,13 @@ class Custom extends Codec {
     } else {
       g.guard(`${result} = ${call};`);
     }
+    // Values of a fixed size have all their bytes: more will not help.
     g.check(
       `${result} === undefined`,
-      "end-of-input",
-      '"unexpected end of input"',
+      fixed ? "invalid" : "end-of-input",
+      fixed
+        ? `"decode returned undefined for the ${size} bytes of the value"`
+        : '"unexpected end of input"',
     );
     const v = wanted ? g.let(`${result}.value`) : "";
     if (fixed) g.skip(size);

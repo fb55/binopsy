@@ -98,6 +98,14 @@ describe("Custom codecs", () => {
       { path: ["b"], message: /bytesRead 9/u },
     ],
     [
+      "must decode values of a fixed size from their bytes",
+      bin()
+        .u8("a")
+        .field("b", custom({ size: 1, decode: () => undefined })),
+      "00 07",
+      { code: "invalid", path: ["b"], message: /decode returned undefined/u },
+    ],
+    [
       "locate the errors they throw",
       bin().u8("a").field("b", varint),
       "00 ffffffffff",
