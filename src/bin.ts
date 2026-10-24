@@ -650,13 +650,16 @@ class Parser extends Codec<Obj> {
     const output = this.selection
       ? new Set([...wanted].filter((n) => this.selection!.has(n)))
       : wanted;
-    // The fields read by the entries after each (before a function getting
-    // every field, those of the entry).
+    // The fields of each entry that the entries after it read (all of them
+    // before a function getting every field).
     const after: ReadonlySet<string>[] = [];
     const read = new Set(later);
     let all = false;
     for (let i = entries.length - 1; i >= 0; i--) {
-      after[i] = all ? new Set(names(entries[i])) : new Set(read);
+      const defined = names(entries[i]);
+      after[i] = new Set(
+        all ? defined : defined.filter((name) => read.has(name)),
+      );
       for (const name of readsOf(entries[i])) {
         if (name === ALL_FIELDS) all = true;
         else read.add(name);
