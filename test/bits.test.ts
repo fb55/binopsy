@@ -74,6 +74,29 @@ describe("Bit fields", () => {
     ).toStrictEqual({ a: 1, b: 2, c: 20, d: 0xf });
   });
 
+  it.each(["msb", "lsb"] as const)(
+    "keep reused prefixes independent, %s first",
+    (bitOrder) => {
+      const prefix = bin({ bitOrder }).bits("head", 3);
+      const narrow = prefix.bits("tail", 5);
+      const wide = prefix.bits("tail", 13);
+      const aligned = prefix.u8("tail");
+      expect([prefix.size, narrow.size, wide.size, aligned.size]).toStrictEqual(
+        [1, 1, 2, 2],
+      );
+      expect(prefix.decode(Uint8Array.of(255))).toStrictEqual({ head: 7 });
+      expect(narrow.encode({ head: 7, tail: 31 })).toStrictEqual(
+        Uint8Array.of(255),
+      );
+      expect(wide.encode({ head: 7, tail: 8191 })).toStrictEqual(
+        Uint8Array.of(255, 255),
+      );
+      expect(aligned.encode({ head: 7, tail: 255 })).toStrictEqual(
+        Uint8Array.of(bitOrder === "msb" ? 224 : 7, 255),
+      );
+    },
+  );
+
   // Runs of fields of [width, value], with fields of 32 bits at several bit offsets.
   describe.each<[name: string, fields: [number, number][]]>([
     [

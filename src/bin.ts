@@ -401,6 +401,21 @@ function names(entry: Entry): string[] {
 }
 
 /**
+ * Adds an entry's names, checking that none is already taken.
+ *
+ * @param entry The entry being added.
+ * @param own The names of the fields before it.
+ */
+function addNames(entry: Entry, own: Set<string>): void {
+  for (const name of names(entry)) {
+    if (typeof name !== "string" || own.has(name) || name === "__proto__") {
+      throw new Error(`invalid or duplicate field \`${name}\``);
+    }
+    own.add(name);
+  }
+}
+
+/**
  * The parsers of the cases of a match.
  *
  * @param match A match of parsers.
@@ -412,57 +427,14 @@ function cases(match: Match): Parser[] {
   return all as unknown as Parser[];
 }
 
-/**
- * The size of entries, and whether reading them checks something.
- *
- * @param entries The entries of a parser.
- * @returns The size in bytes (`NaN` if it varies), and whether any checks.
- */
-function measure(entries: readonly Entry[]): [size: number, checks: boolean] {
-  let size = 0;
-  let bits = 0;
-  let checks = false;
-  for (const entry of entries) {
-    if (entry.kind === "bits") {
-      bits += entry.width;
-      continue;
-    }
-    size += Math.ceil(bits / 8);
-    bits = 0;
-    const codec =
-      entry.kind === "field"
-        ? entry.codec
-        : entry.kind === "match"
-          ? entry.match
-          : entry.struct;
-    size += codec.size;
-    checks ||= codec.checks;
-  }
-  return [size + Math.ceil(bits / 8), checks];
-}
-
-/**
- * Named fields read outside this plan, plus the callback-prefix marker.
- *
- * @param entries The entries of a parser.
- * @returns The fields before the entries they read (with `ALL_FIELDS`, if any).
- */
-function unresolved(entries: readonly Entry[]): Reads {
-  const own = new Set<string>();
-  const reads = new Set<Reads[number]>();
-  for (const entry of entries) {
-    for (const name of readsOf(entry)) {
-      if (name === ALL_FIELDS || !own.has(name)) reads.add(name);
-    }
-    for (const name of names(entry)) own.add(name);
-  }
-  return [...reads];
-}
-
 /** A parser at run time: a list of entries. */
 class Parser extends Codec<Obj> {
   readonly entries: readonly Entry[];
   readonly order: Order;
+  /** The names of its fields in order (those of the cases of a match once). */
+  private readonly own: ReadonlySet<string>;
+  /** Bits in the last run, whose final byte later bit fields may share. */
+  private readonly tailBits: number;
   /** The fields it computes (it adds no more fields). */
   readonly computes: readonly (readonly [string, Compute])[] | undefined;
   /** The fields it decodes (it only decodes). */
@@ -471,11 +443,39 @@ class Parser extends Codec<Obj> {
   constructor(
     entries: readonly Entry[],
     order: Order,
+    prefix?: Parser,
     computes?: readonly (readonly [string, Compute])[],
     selection?: ReadonlySet<string>,
   ) {
-    const [size, checks] = measure(entries);
-    super(size, checks || Boolean(computes), unresolved(entries));
+    const own = new Set(prefix?.own);
+    const reads = new Set(prefix?.reads);
+    let size = prefix?.size ?? 0;
+    let checks = prefix?.checks ?? false;
+    let bits = prefix?.tailBits ?? 0;
+    for (let i = prefix?.entries.length ?? 0; i < entries.length; i++) {
+      const entry = entries[i];
+      for (const name of readsOf(entry)) {
+        if (name === ALL_FIELDS || !own.has(name)) reads.add(name);
+      }
+      addNames(entry, own);
+      if (entry.kind === "bits") {
+        size += Math.ceil((bits + entry.width) / 8) - Math.ceil(bits / 8);
+        bits += entry.width;
+      } else {
+        const codec =
+          entry.kind === "field"
+            ? entry.codec
+            : entry.kind === "match"
+              ? entry.match
+              : entry.struct;
+        size += codec.size;
+        checks ||= codec.checks;
+        bits = 0;
+      }
+    }
+    super(size, checks || Boolean(computes), [...reads]);
+    this.own = own;
+    this.tailBits = bits;
     this.entries = entries;
     this.order = order;
     this.computes = computes;
@@ -488,7 +488,7 @@ class Parser extends Codec<Obj> {
    * @returns The names in order (if it decodes some fields, those).
    */
   names(): string[] {
-    const all = this.entries.flatMap(names);
+    const all = [...this.own];
     return this.selection ? all.filter((n) => this.selection!.has(n)) : all;
   }
 
@@ -541,7 +541,7 @@ class Parser extends Codec<Obj> {
         throw new TypeError(`the computation of \`${key}\` is not a function`);
       }
     }
-    return new Parser(this.entries, this.order, computes);
+    return new Parser(this.entries, this.order, this, computes);
   }
 
   pick(...picked: string[]): Parser {
@@ -549,7 +549,13 @@ class Parser extends Codec<Obj> {
     for (const name of picked) {
       if (!own.has(name)) throw new Error(`no field \`${name}\``);
     }
-    return new Parser(this.entries, this.order, this.computes, new Set(picked));
+    return new Parser(
+      this.entries,
+      this.order,
+      this,
+      this.computes,
+      new Set(picked),
+    );
   }
 
   /**
@@ -564,21 +570,6 @@ class Parser extends Codec<Obj> {
         "no fields can be added to a parser computing fields, or decoding some",
       );
     }
-    const taken = new Set(this.names());
-    for (const entry of entries) {
-      const added = names(entry);
-      for (const name of added) {
-        if (
-          typeof name !== "string" ||
-          taken.has(name) ||
-          name === "__proto__"
-        ) {
-          throw new Error(`invalid or duplicate field \`${name}\``);
-        }
-      }
-      // Fields of different cases may have the same names.
-      for (const name of added) taken.add(name);
-    }
     const last = this.entries.at(-1);
     if (
       last?.kind === "bits" &&
@@ -587,7 +578,7 @@ class Parser extends Codec<Obj> {
     ) {
       throw new Error("bit fields of different orders cannot share bytes");
     }
-    return new Parser([...this.entries, ...entries], this.order);
+    return new Parser([...this.entries, ...entries], this.order, this);
   }
 
   // Parsers of a fixed size are inlined in the code of others (their code is bounded by their size).
