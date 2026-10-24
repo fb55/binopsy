@@ -103,6 +103,11 @@ describe("Sizes", () => {
       );
     expect(deferred.sizeOf(input)).toBe(5);
     expect(deferred.encode(input)).toHaveLength(5);
+    // Values given are not filled in, so selectors run once.
+    let selected = 0;
+    const once = sized(1, match(() => ++selected).case(1, literal(u8, 3)));
+    expect(once.encode(3)).toStrictEqual(hex("03"));
+    expect(selected).toBe(1);
     // Refinements test the value filled in (untyped code may refine literals).
     const untyped = literal(u8, 5) as unknown as Codec<number>;
     const five = bin().field(

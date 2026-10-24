@@ -167,7 +167,10 @@ export class Match extends Codec {
   }
 
   override emitFill(g: Gen, value: string): void {
-    if (this.fills()) this.emitSwitch(g, (codec) => fillIn(g, codec, value));
+    if (!this.fills()) return;
+    g.block(`if (${value} === undefined)`, () =>
+      this.emitSwitch(g, (codec) => fillIn(g, codec, value)),
+    );
   }
 
   case(value: Value, codec: AnyCodec): Match {
