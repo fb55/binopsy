@@ -47,6 +47,20 @@ describe("Custom codecs", () => {
     expect(streamed.map((v) => [v.n, v.end])).toStrictEqual([[300, 9]]);
   });
 
+  it("are sized with their size function, or else by encoding", () => {
+    const parser = bin().field("n", varint).field("data", bytes("n"));
+    const value = { n: 300, data: new Uint8Array(300) };
+    expect(parser.sizeOf(value)).toBe(302);
+    const sized = custom({
+      decode: () => undefined,
+      encode: () => {
+        throw new Error("encoded");
+      },
+      size: (n: number) => (n < 128 ? 1 : 2),
+    });
+    expect(bin().field("n", sized).sizeOf({ n: 300 })).toBe(2);
+  });
+
   it("may decode undefined values", () => {
     const codec = custom<unknown>({
       decode: () => ({ value: undefined, bytesRead: 1 }),

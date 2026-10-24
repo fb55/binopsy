@@ -19,8 +19,12 @@ export interface DecodeResult<O> {
  * value, so it must have no side effects.
  */
 export interface CustomOptions<O, I = O> {
-  /** The size of every value in bytes, if it is fixed: `decode` then gets exactly these bytes. */
-  size?: number | undefined;
+  /**
+   * The size of every value in bytes, if it is fixed: `decode` then gets
+   * exactly these bytes. Or the size of a value, which `sizeOf` uses instead
+   * of encoding it.
+   */
+  size?: number | ((value: I) => number) | undefined;
   /** Decodes the value at the start of `bytes`, or returns `undefined` to get more bytes. */
   decode: (bytes: Uint8Array, final: boolean) => DecodeResult<O> | undefined;
   /** The bytes of a value. */
@@ -44,7 +48,10 @@ export function custom(
     }
   }
   const { size } = options;
-  if (size !== undefined && !(Number.isSafeInteger(size) && size >= 0)) {
+  if (
+    !(size === undefined || typeof size === "function") &&
+    !(Number.isSafeInteger(size) && size >= 0)
+  ) {
     throw new TypeError(`invalid size ${String(size)}`);
   }
   if (typeof options.decode !== "function") {
@@ -139,15 +146,17 @@ function encodeWith(
 class Custom extends Codec {
   private readonly fn: Decode;
   private readonly toBytes: CustomOptions<unknown>["encode"] | undefined;
+  private readonly measure: ((value: unknown) => number) | undefined;
 
   constructor(
-    size: number,
+    size: NonNullable<CustomOptions<unknown>["size"]>,
     decode: Decode,
     encode: CustomOptions<unknown>["encode"] | undefined,
   ) {
-    super(size, true);
+    super(typeof size === "number" ? size : Number.NaN, true);
     this.fn = decode;
     this.toBytes = encode;
+    this.measure = typeof size === "function" ? size : undefined;
   }
 
   emitRead(g: Gen, wanted: boolean): string {
@@ -186,8 +195,8 @@ class Custom extends Codec {
       );
       return;
     }
-    if (g.mode === "size" && Number.isFinite(this.size)) {
-      g.skip(this.size);
+    if (g.mode === "size" && (this.measure || Number.isFinite(this.size))) {
+      g.skip(this.measure ? g.callback(this.measure, value) : this.size);
       return;
     }
     const bytes = g.callback(

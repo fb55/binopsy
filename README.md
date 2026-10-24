@@ -272,7 +272,7 @@ WritableChunk.encode({ type: "IEND", data: new Uint8Array(0) });
 - `.computed(name, f)` computes one field; `.computed({ … })` several, each from the value without the computed fields. Like every method, it returns a new parser (to which no fields can be added); `Chunk` is unchanged.
 - Values are checked: numbers must fit, arrays and bytes must have their length, and text must fit its string. Failures throw an `EncodeError` with the path of the field: a `name` of 300 bytes gives `` expected u8, got 300 in `name` ``.
 - `encodeInto(value, bytes, offset?)` writes to a buffer you have, and returns the offset after the value. If it fails, it may have written part of the value.
-- `sizeOf(value)` is the number of bytes of `value`, without encoding it (`custom` codecs of no fixed `size` are encoded). It does not check the value.
+- `sizeOf(value)` is the number of bytes of `value`, without encoding it (`custom` codecs are encoded, unless they have a `size`). It does not check the value.
 
 ## Recursive structures
 
@@ -348,7 +348,7 @@ Entry.encode({ key: "id", values: [1, 300] }); // Uint8Array [2, 105, 100, 2, 1,
 
 - `decode(bytes, final)` gets the bytes from the value on. It returns `{ value, bytesRead }`, or `undefined` if it needs more bytes and `final` is false (in a stream, more may follow).
 - It is then called again with more bytes, so it must have no side effects.
-- Given a `size`, `decode` gets exactly that many bytes, and `final` is true. Without `encode`, the codec only decodes.
+- Given a `size`, `decode` gets exactly that many bytes, and `final` is true. `size` may instead be a function of a value, which `sizeOf` calls rather than encoding the value. Without `encode`, the codec only decodes.
 - For a conversion of bytes that other codecs read, `map` is enough: [examples/tar.ts](examples/tar.ts) reads octal numbers with a `map` of `bytes`.
 
 ## Malformed input
