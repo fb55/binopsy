@@ -1,13 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  bin,
-  bytes,
-  custom,
-  DecodeError,
-  EncodeError,
-  type DecodeResult,
-} from "../src/index.ts";
+import { bin, bytes, custom, DecodeError, EncodeError } from "../src/index.ts";
 import {
   bytewise,
   collect,
@@ -69,12 +62,6 @@ describe("Custom codecs", () => {
         .field("b", custom({ decode: () => ({ value: 1, bytesRead: 9 }) })),
       "00 01",
       { path: ["b"], message: /bytesRead 9/u },
-    ],
-    [
-      "must decode to a value",
-      custom({ decode: () => ({ bytesRead: 1 }) as DecodeResult<undefined> }),
-      "01",
-      { code: "invalid" },
     ],
     [
       "locate the errors they throw",

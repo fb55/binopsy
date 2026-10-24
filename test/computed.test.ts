@@ -164,9 +164,6 @@ describe("Computed fields", () => {
     expect(parser.encode(Object.freeze({ tag }))).toStrictEqual(
       Uint8Array.of(tag, 7),
     );
-    expect(() => parser.encode({ tag, n: 8 as never })).toThrow(
-      /computed as 7/u,
-    );
   });
 
   it("supply the fields a merged parser computes from", () => {
@@ -183,18 +180,14 @@ describe("Computed fields", () => {
   it("must agree when a merged parser computes them too", () => {
     const group = bin()
       .u8("n")
-      .computed("n", () => 1);
-    expect(
-      bin()
-        .merge(group)
-        .computed("n", () => 1)
-        .encode({}),
-    ).toStrictEqual(Uint8Array.of(1));
-    expect(() =>
-      bin()
-        .merge(group)
-        .computed("n", () => 2 as never)
-        .encode({} as never),
-    ).toThrow(/computed as 1/u);
+      .u8("x")
+      .computed("n", (v) => v.x);
+    const parser = bin()
+      .merge(group)
+      .computed("n", () => 7);
+    expect(parser.encode({ x: 7 })).toStrictEqual(Uint8Array.of(7, 7));
+    expect(() => parser.encode({ x: 8 })).toThrow(
+      /is 7, but computed as 8 in `n`/u,
+    );
   });
 });

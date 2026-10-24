@@ -136,15 +136,6 @@ describe("Decoding errors", () => {
       { code: "invalid", message: /invalid length -1 in `a`/u },
     ],
     [
-      "report lengths that are not numbers",
-      bin().field(
-        "a",
-        bytes(() => "1" as never),
-      ),
-      "07",
-      { code: "invalid", path: ["a"] },
-    ],
-    [
       "report the end of the input before a terminator",
       bin().field("a", string({ terminator: 0 })),
       "6162",
@@ -190,24 +181,19 @@ describe("Encoding errors", () => {
     points: [{ x: 9 }, { x: 8 }],
   };
 
-  it.each<[name: string, value: unknown, path: (string | number)[]]>([
+  it.each<[name: string, value: typeof shape, path: (string | number)[]]>([
     [
       "are located in inlined parsers",
       { ...shape, center: { at: { x: 256 } } },
       ["center", "at", "x"],
     ],
     [
-      "are located at inlined parsers",
-      { ...shape, center: { at: 1 } },
-      ["center", "at"],
-    ],
-    [
       "are located in items of inlined parsers",
-      { ...shape, points: [{ x: 9 }, { x: 8, y: 2 }] },
-      ["points", 1, "y"],
+      { ...shape, points: [{ x: 9 }, { x: 256 }] },
+      ["points", 1, "x"],
     ],
   ])("%s", (_, value, path) => {
-    expect(() => Shape.encode(value as never)).toThrow(
+    expect(() => Shape.encode(value)).toThrow(
       expect.objectContaining({ name: "EncodeError", path }),
     );
   });

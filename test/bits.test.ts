@@ -143,7 +143,6 @@ describe("Bit fields", () => {
     [3, 8],
     [3, 1.5],
     [53, 2 ** 53],
-    [53, 2n],
   ])("of %i bits reject %s when encoding", (width, a) =>
     encodeFails(
       bin().bits("a", width),

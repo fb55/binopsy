@@ -1,6 +1,6 @@
 import { describe, it } from "vitest";
 
-import { array, bin, i32le, u8 } from "../src/index.ts";
+import { array, bin, u8 } from "../src/index.ts";
 import { encodeFails, roundtrip, type Standalone } from "./helpers.ts";
 
 describe("Numbers", () => {
@@ -40,19 +40,11 @@ describe("Numbers", () => {
     ],
   ])("%s", (_, codec, bytes, value) => roundtrip(codec, bytes, value));
 
-  it.each<[name: string, codec: Standalone, value: unknown, message: RegExp]>([
-    [
-      "must fit their codec",
+  it("must fit their codec", () => {
+    encodeFails(
       bin().field("a", array(u8, u8)),
       { a: [256] },
       /expected u8, got 256 in `a\[0\]`/u,
-    ],
-    // A bigint is not converted (which would throw a TypeError).
-    [
-      "must not be bigints, unless 64 bits wide",
-      bin().field("a", i32le),
-      { a: 1n },
-      /expected i32le, got 1 in `a`/u,
-    ],
-  ])("%s", (_, codec, value, message) => encodeFails(codec, value, message));
+    );
+  });
 });

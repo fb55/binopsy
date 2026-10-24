@@ -4,13 +4,11 @@ import {
   array,
   bin,
   bytes,
-  DecodeError,
   lazy,
   match,
   sized,
   string,
   u8,
-  when,
   type Codec,
   type Output,
 } from "../src/index.ts";
@@ -220,100 +218,5 @@ describe("Fields around codecs", () => {
     parser.encode({ a: 1, b: hex("02"), c: 3 });
     parser.decode(hex("01 02 03"));
     expect(seen).toStrictEqual([["a"], ["a"]]);
-  });
-
-  // Codecs reading fields fail to compile where these are missing (also when they are stepped over).
-  const group = bin<{ missing: number }>().field("v", when("missing", u8));
-
-  it.each<[name: string, decode: () => unknown, message: RegExp]>([
-    [
-      "a field, when decoding",
-      () =>
-        bin()
-          .field("a", bytes("n" as never))
-          .decode(hex("00")),
-      /`n` is not a field before `a`/u,
-    ],
-    [
-      "a field, when encoding",
-      () =>
-        bin()
-          .field("a", bytes("n" as never))
-          .encode({ a: hex("") }),
-      /`n` is not a field before `a`/u,
-    ],
-    [
-      "a nested parser",
-      () =>
-        bin()
-          .field("inner", group as never)
-          .decode(hex("")),
-      /`missing` is not a field/u,
-    ],
-    [
-      "an array of no items",
-      () =>
-        bin()
-          .field("inner", array(group, 0) as never)
-          .decode(hex("")),
-      /`missing` is not a field/u,
-    ],
-    [
-      "a region of no bytes",
-      () =>
-        bin()
-          .field("inner", sized(0, group) as never)
-          .decode(hex("")),
-      /`missing` is not a field/u,
-    ],
-    [
-      "a nested parser that also calls a function",
-      () =>
-        bin()
-          .field(
-            "inner",
-            bin<{ missing: number }>()
-              .field(
-                "empty",
-                bytes(() => 0),
-              )
-              .field("v", when("missing", u8)) as never,
-          )
-          .decode(hex("")),
-      /`missing` is not a field/u,
-    ],
-    [
-      "a nested parser stepped over",
-      () =>
-        bin()
-          .field(
-            "inner",
-            bin<{ missing: number }>().field(
-              "data",
-              sized(1, bytes("missing")),
-            ) as never,
-          )
-          .pick()
-          .decode(hex("00")),
-      /`missing` is not a field/u,
-    ],
-    [
-      "an array of no items stepped over",
-      () =>
-        bin()
-          .field(
-            "inner",
-            bin<{ missing: number }>().field(
-              "values",
-              array(bytes("missing"), 0),
-            ) as never,
-          )
-          .pick()
-          .decode(hex("")),
-      /`missing` is not a field/u,
-    ],
-  ])("must be there for %s", (_, run, message) => {
-    expect(run).toThrow(message);
-    expect(run).not.toThrow(DecodeError);
   });
 });

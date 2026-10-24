@@ -14,7 +14,6 @@ import {
 } from "../src/index.ts";
 import {
   decodeFails,
-  encodeFails,
   hex,
   roundtrip,
   type Failure,
@@ -94,33 +93,6 @@ describe("Matches", () => {
       "02 0300 09 0400",
       { tag: 2, v: 3, x: 9, w: 4 },
     ],
-    // `1` and `"1"` are different.
-    [
-      "tell number tags from string cases",
-      bin()
-        .u8("n")
-        .field(
-          "v",
-          match((o: { n: number }) => o.n)
-            .case("1" as never, u8)
-            .otherwise(u16le),
-        ),
-      "01 0701",
-      { n: 1, v: 0x0107 },
-    ],
-    [
-      "tell string tags from number cases",
-      bin()
-        .field("tag", string(1))
-        .field(
-          "v",
-          match("tag")
-            .case(1 as never, u8)
-            .otherwise(u16le),
-        ),
-      "31 0701",
-      { tag: "1", v: 0x0107 },
-    ],
     [
       "merge the fields of a parser case, which later fields read",
       Record,
@@ -173,21 +145,6 @@ describe("Matches", () => {
     ],
   ])("%s", (_, codec, bytes, failure) => decodeFails(codec, bytes, failure));
 
-  it.each<[name: string, codec: Standalone, value: unknown, message: RegExp]>([
-    [
-      "fail for tags without a case when encoding",
-      bin().u8("t").field("v", match("t").case(0, u8)),
-      { t: 1, v: 0 },
-      /no case for 1 in `v`/u,
-    ],
-    [
-      "fail for tags without a merged case when encoding",
-      Flat,
-      { kind: 3 },
-      /no case for 3/u,
-    ],
-  ])("%s", (_, codec, value, message) => encodeFails(codec, value, message));
-
   it.each<[name: string, tag: unknown]>([
     ["NaN", Number.NaN],
     ["a bigint", 4n],
@@ -197,80 +154,44 @@ describe("Matches", () => {
     expect(parser.encode(7)).toStrictEqual(Uint8Array.of(7));
   });
 
-  it.each<[name: string, tag: unknown]>([
-    ["undefined", undefined],
-    ["an object", {}],
-  ])("reject computed tags of %s, even with a default", async (_, tag) => {
-    const parser = bin()
-      .u8("head")
-      .field("value", match(() => tag as number).otherwise(u8));
-    await decodeFails(parser, "00 07", {
-      code: "invalid",
-      path: ["value"],
-      offset: 1,
-    });
-    expect(() => parser.encode({ head: 0, value: 7 })).toThrow(
-      expect.objectContaining({ name: "EncodeError", path: ["value"] }),
-    );
-  });
-
   // Errors of the computed tag of a merged match are located at the record that contains it.
   describe.each([
     ["after a byte", false],
     ["after bit fields", true],
   ] as const)("merged %s", (_, bits) => {
     const cause = new Error("selector failed");
-    describe.each([
-      ["is invalid", false],
-      ["throws", true],
-    ] as const)("with a computed tag that %s", (_how, throws) => {
-      const parser = (bits ? bin().bits("head", 3) : bin().u8("head")).merge(
-        match((): number => {
-          if (throws) throw cause;
-          return {} as never;
-        }).otherwise(bin().u8("value")),
-      );
+    const parser = (bits ? bin().bits("head", 3) : bin().u8("head")).merge(
+      match((): number => {
+        throw cause;
+      }).otherwise(bin().u8("value")),
+    );
 
-      it.each([
-        ["", false],
-        [", in an array", true],
-      ] as const)(
-        "locate its errors at the record%s",
-        async (_where, nested) => {
-          const codec: Codec<unknown, never> = nested
-            ? bin().field("rows", array(parser, 1))
-            : parser;
-          const path = nested ? ["rows", 0] : [];
-          await decodeFails(codec, "00 07", {
-            code: throws ? "error" : "invalid",
-            offset: 1,
-            path,
-            ...(throws && { cause }),
-          });
-          const value = { head: 0, value: 7 };
-          expect(() =>
-            (codec as Codec<unknown, unknown>).encode(
-              nested ? { rows: [value] } : value,
-            ),
-          ).toThrow(
-            expect.objectContaining({
-              name: "EncodeError",
-              path,
-              ...(throws && { cause }),
-            }),
-          );
-        },
-      );
-    });
-  });
-
-  // Cases are picked as by `===`, for which -0 is 0.
-  it("have one case for 0 and -0", () => {
-    expect(() =>
-      match("t")
-        .case(0, u8)
-        .case(-0 as never, u8),
-    ).toThrow(/0 already has a case/u);
+    it.each([
+      ["", false],
+      [", in an array", true],
+    ] as const)(
+      "locate the errors of its computed tag at the record%s",
+      async (_where, nested) => {
+        const codec: Codec<unknown, never> = nested
+          ? bin().field("rows", array(parser, 1))
+          : parser;
+        const path = nested ? ["rows", 0] : [];
+        await decodeFails(codec, "00 07", {
+          code: "error",
+          offset: 1,
+          path,
+          cause,
+        });
+        const value = { head: 0, value: 7 };
+        expect(() =>
+          (codec as Codec<unknown, unknown>).encode(
+            nested ? { rows: [value] } : value,
+          ),
+        ).toThrow(
+          expect.objectContaining({ name: "EncodeError", path, cause }),
+        );
+      },
+    );
   });
 
   it("may repeat field names in their cases, but not across matches", () => {

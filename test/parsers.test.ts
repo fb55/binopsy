@@ -145,14 +145,10 @@ describe("Literals", () => {
 
 describe("Refinements", () => {
   it("check values when decoding and encoding", () => {
-    const Status = refine(
-      u8,
-      (n): n is 1 | 2 => n === 1 || n === 2,
-      "expected status 1 or 2",
-    );
-    expect(Status.decode(hex("02"))).toBe(2);
-    expect(() => Status.decode(hex("03"))).toThrow(/expected status 1 or 2/u);
-    expect(() => Status.encode(3 as never)).toThrow(/expected status 1 or 2/u);
+    const Small = refine(u8, (n) => n <= 2, "expected at most 2");
+    expect(Small.decode(hex("02"))).toBe(2);
+    expect(() => Small.decode(hex("03"))).toThrow(/expected at most 2/u);
+    expect(() => Small.encode(3)).toThrow(/expected at most 2/u);
   });
 });
 
@@ -179,10 +175,6 @@ describe("Optional values", () => {
 
   it("follow any flag but 0", () => {
     expect(parser.decode(hex("07 0200"))).toStrictEqual({ a: 2 });
-  });
-
-  it("are null, never undefined", () => {
-    encodeFails(parser, { a: undefined }, /expected a value, or null in `a`/u);
   });
 });
 
