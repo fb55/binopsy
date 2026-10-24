@@ -349,7 +349,7 @@ Entry.encode({ key: "id", values: [1, 300] }); // Uint8Array [2, 105, 100, 2, 1,
 
 - `decode(bytes, final)` gets the bytes from the value on. It returns `{ value, bytesRead }`, or `undefined` if it needs more bytes and `final` is false (in a stream, more may follow).
 - It is then called again with more bytes, so it must have no side effects.
-- Given a `size`, `decode` gets exactly that many bytes, and `final` is true. `size` may instead be a function of a value, which `sizeOf` calls rather than encoding the value. Without `encode`, the codec only decodes.
+- Given a number as `size`, `decode` gets exactly that many bytes, and `final` is true. A function of a value as `size` is only for `sizeOf`, which calls it rather than encoding the value. Without `encode`, the codec only decodes.
 - For a conversion of bytes that other codecs read, `map` is enough: [examples/tar.ts](examples/tar.ts) reads octal numbers with a `map` of `bytes`.
 
 ## Malformed input

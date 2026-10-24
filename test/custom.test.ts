@@ -59,6 +59,14 @@ describe("Custom codecs", () => {
       size: (n: number) => (n < 128 ? 1 : 2),
     });
     expect(bin().field("n", sized).sizeOf({ n: 300 })).toBe(2);
+    const wrong = custom({
+      decode: () => undefined,
+      encode: (n: number) => Uint8Array.of(n),
+      size: () => -1,
+    });
+    expect(() => bin().field("n", wrong).sizeOf({ n: 1 })).toThrow(
+      /size returned -1, not a size in `n`/u,
+    );
   });
 
   it("may decode undefined values", () => {

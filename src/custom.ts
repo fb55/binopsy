@@ -143,6 +143,24 @@ function encodeWith(
   return bytes;
 }
 
+/**
+ * The size `measure` gives for `value` (checked).
+ *
+ * @param measure The size function of the codec.
+ * @param value The value to measure.
+ * @returns The size in bytes.
+ */
+function measureWith(
+  measure: (value: unknown) => number,
+  value: unknown,
+): number {
+  const size = measure(value);
+  if (!(Number.isSafeInteger(size) && size >= 0)) {
+    throw new EncodeError(`size returned ${String(size)}, not a size`);
+  }
+  return size;
+}
+
 class Custom extends Codec {
   private readonly fn: Decode;
   private readonly toBytes: CustomOptions<unknown>["encode"] | undefined;
@@ -196,7 +214,11 @@ class Custom extends Codec {
       return;
     }
     if (g.mode === "size" && (this.measure || Number.isFinite(this.size))) {
-      g.skip(this.measure ? g.callback(this.measure, value) : this.size);
+      g.skip(
+        this.measure
+          ? g.callback(measureWith, g.k(this.measure), value)
+          : this.size,
+      );
       return;
     }
     const bytes = g.callback(
