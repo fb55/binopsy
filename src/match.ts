@@ -157,6 +157,18 @@ export class Match extends Codec {
     this.default = otherwise;
   }
 
+  /**
+   * Whether a case fills in the value when it is omitted (as a literal does).
+   *
+   * @returns `true` if a case, or one of a nested match, has a default.
+   */
+  get fills(): boolean {
+    return [...this.cases.map(([, codec]) => codec), this.default].some(
+      (codec) =>
+        codec?.preset !== undefined || (codec instanceof Match && codec.fills),
+    );
+  }
+
   case(value: Value, codec: AnyCodec): Match {
     if (this.default) throw new Error("no cases can follow `otherwise`");
     if (!scalars.has(typeof value) || Number.isNaN(value)) {
@@ -245,7 +257,7 @@ export function write(g: Gen, codec: AnyCodec, value: string): void {
   if (
     g.mode === "size" &&
     Number.isFinite(codec.size) &&
-    !(codec instanceof Match)
+    !(codec instanceof Match && codec.fills)
   ) {
     g.skip(codec.size);
   } else {

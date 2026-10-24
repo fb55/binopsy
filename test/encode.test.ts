@@ -51,10 +51,15 @@ describe("Sizes", () => {
     };
     expect(codec.sizeOf(value)).toBe(7);
     const fixed = map(u8, { decode: count(0), encode: count(0) });
+    const picked = match(count(1)).case(1, fixed);
     expect(fixed.sizeOf(0)).toBe(1);
     expect(
-      bin().field("s", string(u8)).field("f", fixed).sizeOf({ s: "", f: 0 }),
-    ).toBe(2);
+      bin()
+        .field("s", string(u8))
+        .field("f", fixed)
+        .field("p", picked)
+        .sizeOf({ s: "", f: 0, p: 0 }),
+    ).toBe(3);
     expect(calls).toBe(0);
     expect(codec.encode(value)).toHaveLength(7);
   });
