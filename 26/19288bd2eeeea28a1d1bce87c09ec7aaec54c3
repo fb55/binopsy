@@ -1,0 +1,28 @@
+src/codec.ts
+  s_9822029f13e609::t_fff252ed9ef47c 70-92
+src/codecs.ts
+  s_9822029f13e609::t_fff252ed9ef47c 17,1018-1025,1053-1054,1223-1229
+  s_9822029f13e609::t_84aab5b6cf643e 1230
+src/match.ts
+  s_9822029f13e609::t_fff252ed9ef47c 160,163,167-170,204,243-258,261,268-269
+oxlint.config.ts
+  s_9822029f13e609::t_fff252ed9ef47c 55-64
+test/encode.test.ts
+  s_9822029f13e609::t_fff252ed9ef47c 14,76-101
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2619288bd2eeeea28a1d1bce87c09ec7aaec54c3",
+  "prompts": {},
+  "sessions": {
+    "s_9822029f13e609": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8444603f-d257-481a-a71b-1dce68106d54",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Felix Boehm <188768+fb55@users.noreply.github.com>"
+    }
+  }
+}
