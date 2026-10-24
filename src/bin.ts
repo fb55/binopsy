@@ -12,6 +12,7 @@ import {
   type Input,
   type Obj,
   type Output,
+  type types,
 } from "./codec.ts";
 import { ALL_FIELDS, type Gen, type Reads, type Selection } from "./compile.ts";
 import {
@@ -31,15 +32,13 @@ import { primitives, type Numbers } from "./primitives.ts";
  */
 /* oxlint-disable typescript/no-empty-object-type */
 
-/** Flattens intersections into object types (for each variant of a union). */
-type Pretty<T> = { [K in keyof T]: T[K] };
+/** Flattens each variant; `& {}` makes hovers expand the object instead of naming this alias. */
+type Pretty<T> = { [K in keyof T]: T[K] } & {};
 /** The field names of any variant of `T`. */
 type Keys<T> = T extends unknown ? keyof T & string : never;
-/** `T` with field `K` of type `V`. */
-type Add<T, K extends string, V> = T extends unknown
-  ? K extends unknown
-    ? T & { [P in K]: V }
-    : never
+/** `T` with field `K` of type `V`; intersections distribute over variants of `T`. */
+type Add<T, K extends string, V> = K extends unknown
+  ? T & { [P in K]: V }
   : never;
 /** `I` with field `K` of type `V`, which may be omitted if the codec supplies it (`D`). */
 type AddInput<I, K extends string, V, D = false> = I &
@@ -57,7 +56,7 @@ type InScope<Fields, Outer> = Fields extends unknown
   : never;
 /** The fields a codec added to a parser sees: the parser's, and those around it (`Ctx`). */
 type Seen<T, I, Ctx> = unknown extends Ctx
-  ? Available<T, I>
+  ? Pretty<Available<T, I>>
   : InScope<Available<T, I>, Ctx>;
 
 /** The tag and cases of a match (`never` for other codecs). */
@@ -234,11 +233,15 @@ export declare const structured: unique symbol;
  * some): `T` is the union of the objects it decodes, `I` that of those it
  * encodes, and `Ctx` holds fields it reads from the parser it is added to.
  */
-export interface Struct<T, I = T, Ctx = unknown> extends Codec<
-  Pretty<T>,
-  Pretty<I>,
-  Ctx
-> {
+export interface Struct<T, I = T, Ctx = unknown> extends Codec<T, I, Ctx> {
+  // Normalize only when a member is used. A normalized base type would
+  // resolve every accumulated field at every step of a builder chain.
+  readonly [types]: Codec<Pretty<T>, Pretty<I>, Ctx>[typeof types];
+  decode: Codec<Pretty<T>, Pretty<I>, Ctx>["decode"];
+  encode: Codec<Pretty<T>, Pretty<I>, Ctx>["encode"];
+  encodeInto: Codec<Pretty<T>, Pretty<I>, Ctx>["encodeInto"];
+  sizeOf: Codec<Pretty<T>, Pretty<I>, Ctx>["sizeOf"];
+
   /** Types only: marks parsers. */
   readonly [structured]: true;
   /**

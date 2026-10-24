@@ -11,6 +11,8 @@ import {
   u8,
   type AnyBin,
   type Context,
+  type Input,
+  type Output,
 } from "../../src/index.ts";
 
 describe("AnyBin", () => {
@@ -29,6 +31,27 @@ describe("AnyBin", () => {
     expectTypeOf(
       bin<{ length: number }>().field("s", string("length")),
     ).toExtend<AnyBin>();
+  });
+});
+
+describe("Parser methods", () => {
+  it("take and return the values of the parser", async () => {
+    const Record = bin()
+      .u8("n")
+      .field("items", bytes("n"))
+      .field("tail", bin().u32le("a"));
+    type Decoded = Output<typeof Record>;
+    type Encoded = Input<typeof Record>;
+    expectTypeOf(Record.decode).returns.toEqualTypeOf<Decoded>();
+    expectTypeOf(Record.encode).parameter(0).toEqualTypeOf<Encoded>();
+    expectTypeOf(Record.encodeInto).parameter(0).toEqualTypeOf<Encoded>();
+    expectTypeOf(Record.sizeOf).parameter(0).toEqualTypeOf<Encoded>();
+    expectTypeOf(
+      new Reader(new Uint8Array()).read(Record),
+    ).toEqualTypeOf<Decoded>();
+    for await (const value of decodeStream(Record, [])) {
+      expectTypeOf(value).toEqualTypeOf<Decoded>();
+    }
   });
 });
 
