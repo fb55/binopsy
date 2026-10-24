@@ -81,9 +81,9 @@ class Values<O> implements AsyncIterableIterator<O, undefined> {
   }
 
   next(): Promise<IteratorResult<O, undefined>> {
+    if (this.done) return Promise.resolve(DONE);
     if (!this.waiting) {
       // A value in the chunks read so far: no need to wait.
-      if (this.done) return Promise.resolve(DONE);
       try {
         const value = this.take();
         if (value !== MORE) return Promise.resolve({ value, done: false });

@@ -243,6 +243,10 @@ describe("Streams", () => {
       done: true,
     });
     expect(returned).toBe(1);
+    await expect(stream.next()).resolves.toStrictEqual({
+      value: undefined,
+      done: true,
+    });
     // The read settles later, and its value is dropped.
     release();
     await expect(pending).resolves.toStrictEqual({
