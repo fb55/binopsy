@@ -384,15 +384,19 @@ type Entry =
  * The names of fields an entry adds (of every case).
  *
  * @param entry The entry of a parser.
+ * @param definite Whether to leave out the fields of only some cases.
  * @returns The names, each once.
  */
-function names(entry: Entry): string[] {
+function names(entry: Entry, definite = false): string[] {
   switch (entry.kind) {
     case "match": {
-      return [...new Set(cases(entry.match).flatMap((s) => s.names()))];
+      const all = cases(entry.match).map((s) => s.names(definite));
+      return [...new Set(all.flat())].filter(
+        (name) => !definite || all.every((fields) => fields.includes(name)),
+      );
     }
     case "group": {
-      return entry.struct.names();
+      return entry.struct.names(definite);
     }
     default: {
       return [entry.name];
@@ -401,18 +405,37 @@ function names(entry: Entry): string[] {
 }
 
 /**
+ * Adds the fields around the parser that an entry reads.
+ *
+ * @param entry The entry being added.
+ * @param definite The fields before it set whatever the cases of matches.
+ * @param reads The fields around the parser read by the entries before it.
+ */
+function addReads(
+  entry: Entry,
+  definite: ReadonlySet<string>,
+  reads: Set<Reads[number]>,
+): void {
+  for (const name of readsOf(entry)) {
+    if (name === ALL_FIELDS || !definite.has(name)) reads.add(name);
+  }
+}
+
+/**
  * Adds an entry's names, checking that none is already taken.
  *
  * @param entry The entry being added.
  * @param own The names of the fields before it.
+ * @param definite Those of them set whatever the cases of matches.
  */
-function addNames(entry: Entry, own: Set<string>): void {
+function addNames(entry: Entry, own: Set<string>, definite: Set<string>): void {
   for (const name of names(entry)) {
     if (typeof name !== "string" || own.has(name) || name === "__proto__") {
       throw new Error(`invalid or duplicate field \`${name}\``);
     }
     own.add(name);
   }
+  for (const name of names(entry, true)) definite.add(name);
 }
 
 /**
@@ -433,6 +456,8 @@ class Parser extends Codec<Obj> {
   readonly order: Order;
   /** The names of its fields in order (those of the cases of a match once). */
   private readonly own: ReadonlySet<string>;
+  /** Those set whatever the cases of its matches (where they are not, fields around it are read). */
+  private readonly definite: ReadonlySet<string>;
   /** Bits in the last run, whose final byte later bit fields may share. */
   private readonly tailBits: number;
   /** The fields it computes (it adds no more fields). */
@@ -448,16 +473,15 @@ class Parser extends Codec<Obj> {
     selection?: ReadonlySet<string>,
   ) {
     const own = new Set(prefix?.own);
+    const definite = new Set(prefix?.definite);
     const reads = new Set(prefix?.reads);
     let size = prefix?.size ?? 0;
     let checks = prefix?.checks ?? false;
     let bits = prefix?.tailBits ?? 0;
     for (let i = prefix?.entries.length ?? 0; i < entries.length; i++) {
       const entry = entries[i];
-      for (const name of readsOf(entry)) {
-        if (name === ALL_FIELDS || !own.has(name)) reads.add(name);
-      }
-      addNames(entry, own);
+      addReads(entry, definite, reads);
+      addNames(entry, own, definite);
       if (entry.kind === "bits") {
         size += Math.ceil((bits + entry.width) / 8) - Math.ceil(bits / 8);
         bits += entry.width;
@@ -475,6 +499,7 @@ class Parser extends Codec<Obj> {
     }
     super(size, checks || Boolean(computes), [...reads]);
     this.own = own;
+    this.definite = definite;
     this.tailBits = bits;
     this.entries = entries;
     this.order = order;
@@ -485,10 +510,11 @@ class Parser extends Codec<Obj> {
   /**
    * The names of the fields it outputs.
    *
+   * @param definite Whether to leave out the fields of only some cases.
    * @returns The names in order (if it decodes some fields, those).
    */
-  names(): string[] {
-    const all = [...this.own];
+  names(definite = false): string[] {
+    const all = [...(definite ? this.definite : this.own)];
     return this.selection ? all.filter((n) => this.selection!.has(n)) : all;
   }
 

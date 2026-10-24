@@ -549,7 +549,13 @@ export class Gen {
    */
   ref(name: string): string {
     const v = this.fields.get(name);
-    if (v !== undefined) return v;
+    if (v !== undefined) {
+      // A field of only some cases may be one around the parser.
+      const when = this.present.get(v);
+      return this.scope !== undefined && when !== undefined
+        ? `(${when} ? ${v} : ${this.scope}[${JSON.stringify(name)}])`
+        : v;
+    }
     if (this.scope !== undefined) {
       return `${this.scope}[${JSON.stringify(name)}]`;
     }

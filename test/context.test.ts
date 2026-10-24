@@ -21,6 +21,32 @@ import {
 } from "./helpers.ts";
 
 describe("Fields around codecs", () => {
+  it("are fallbacks for named reads after a merged match", async () => {
+    const inner = bin<{ a: number }>()
+      .u8("t")
+      .merge(match("t").case(0, bin().u8("a")).otherwise(bin().u8("b")));
+    for (const tail of [bytes("a"), sized(1, bytes("a"))]) {
+      const part = inner.field("tail", tail);
+      await roundtrip(bin().u8("a").field("inner", part), "01 01 09 07", {
+        a: 1,
+        inner: { t: 1, b: 9, tail: hex("07") },
+      });
+      await roundtrip(
+        bin()
+          .u8("a")
+          .field(
+            "inner",
+            part.field(
+              "extra",
+              bytes(() => 0),
+            ),
+          ),
+        "01 01 09 07",
+        { a: 1, inner: { t: 1, b: 9, tail: hex("07"), extra: hex("") } },
+      );
+    }
+  });
+
   const Raw = bin<{ length: number }>().field("raw", bytes("length"));
   const Text = bin<{ length: number }>()
     .field(
