@@ -5,6 +5,7 @@ import {
   bin,
   bytes,
   custom,
+  lazy,
   literal,
   map,
   match,
@@ -16,6 +17,7 @@ import {
   u32le,
   u8,
   when,
+  type Codec,
 } from "../src/index.ts";
 import { hex } from "./helpers.ts";
 
@@ -55,7 +57,9 @@ describe("Sizes", () => {
     const fixed = map(u8, { decode: count(0), encode: count(0) });
     const picked = match(count(1)).case(1, fixed);
     expect(optional(u8, fixed).sizeOf(0)).toBe(2);
+    expect(optional(fixed, u8).sizeOf(null)).toBe(1);
     expect(sized(u8, fixed).sizeOf(0)).toBe(2);
+    expect(array(u8, fixed).sizeOf([1])).toBe(2);
     expect(fixed.sizeOf(0)).toBe(1);
     expect(
       bin()
@@ -87,6 +91,25 @@ describe("Sizes", () => {
       );
     expect(region.sizeOf(input)).toBe(5);
     expect(region.encode(input)).toHaveLength(5);
+    const deferred = bin()
+      .u8("tag")
+      .field(
+        "n",
+        lazy(() => match(() => 1).case(1, literal(u8, 3))),
+      )
+      .field(
+        "data",
+        bytes((o) => o.n ?? 0),
+      );
+    expect(deferred.sizeOf(input)).toBe(5);
+    expect(deferred.encode(input)).toHaveLength(5);
+    // Refinements test the value filled in (untyped code may refine literals).
+    const untyped = literal(u8, 5) as unknown as Codec<number>;
+    const five = bin().field(
+      "n",
+      refine(untyped, (n) => n > 3),
+    );
+    expect(five.encode({} as never)).toStrictEqual(hex("05"));
     const refined = refine(
       match("tag")
         .case(1, literal(u8, 3))

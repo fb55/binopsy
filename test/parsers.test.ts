@@ -173,6 +173,9 @@ describe("Padding", () => {
     expect(Chunk.encodeInto({ data: "a" }, into)).toBe(4);
     expect(into).toStrictEqual(hex("01 61 0000 ffffffff"));
     expect(bin().u8("a").align(4).size).toBe(4);
+    expect(() => bin().skip(Number.MAX_SAFE_INTEGER).u8("a")).toThrow(
+      /not a safe integer/u,
+    );
   });
 });
 

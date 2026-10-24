@@ -52,6 +52,9 @@ export abstract class Codec<O = unknown, I = O, Ctx = unknown> {
 
   /** @internal */
   constructor(size: number, checks = false, reads: Reads = []) {
+    if (size > Number.MAX_SAFE_INTEGER) {
+      throw new RangeError(`a size of ${size} bytes is not a safe integer`);
+    }
     this.size = size;
     this.checks = checks;
     this.reads = reads;

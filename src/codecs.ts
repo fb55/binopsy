@@ -169,7 +169,7 @@ function writeLength(
   if (length === Infinity) return;
   if (length instanceof Codec) {
     const v = g.let(count, "let");
-    length.emitWrite(g, v);
+    writeValue(g, length, v);
     return;
   }
   if (g.mode === "size") return;
@@ -1230,6 +1230,7 @@ class Refine extends Wrapper {
   }
 
   emitWrite(g: Gen, value: string): void {
+    fillIn(g, this.inner, value);
     if (g.mode !== "size") {
       g.check(
         `!${g.callback(this.test, value)}`,
@@ -1371,7 +1372,7 @@ class Presence extends Codec {
     g.check(`${value} === undefined`, "invalid", '"expected a value, or null"');
     const present = g.let(`${value} !== null`);
     if (this.flag) {
-      this.flag.emitWrite(g, g.let(`${present} ? 1 : 0`, "let"));
+      writeValue(g, this.flag, g.let(`${present} ? 1 : 0`, "let"));
     } else if (g.mode !== "size") {
       const holds = this.holds(g);
       g.check(
@@ -1439,6 +1440,7 @@ export function when<
 class Lazy extends Codec {
   private readonly factory: () => AnyCodec;
   #target: AnyCodec | undefined;
+  #visiting = false;
 
   constructor(factory: () => AnyCodec) {
     super(Number.NaN, true);
@@ -1453,12 +1455,39 @@ class Lazy extends Codec {
     return this.target.preset;
   }
 
+  override fills(): boolean {
+    return this.visit(() => this.target.fills()) ?? false;
+  }
+
+  override emitFill(g: Gen, value: string): void {
+    this.visit(() => this.target.emitFill(g, value));
+  }
+
+  /**
+   * Calls `f`, unless it is already being called (the codec may contain
+   * itself).
+   *
+   * @param f The function to call.
+   * @returns What `f` returns, or `undefined` if it is being called.
+   */
+  private visit<T>(f: () => T): T | undefined {
+    if (this.#visiting) return undefined;
+    this.#visiting = true;
+    try {
+      return f();
+    } finally {
+      this.#visiting = false;
+    }
+  }
+
   // Functions of their own, as the codec may contain itself.
   emitRead(g: Gen, wanted: boolean): string {
     return g.call(this.target, wanted);
   }
 
   emitWrite(g: Gen, value: string): void {
+    // Its value's default is in the fields after it.
+    this.emitFill(g, value);
     g.call(this.target, value);
   }
 }
