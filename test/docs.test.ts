@@ -99,7 +99,7 @@ describe("Examples", () => {
     for (const [actual, shown] of outputs) expect(actual).toStrictEqual(shown);
   });
 
-  it("pack a file into a tar archive with a valid checksum, and list it", () => {
+  it("pack a directory into a tar archive with a valid checksum, and list it", () => {
     const dir = mkdtempSync(join(tmpdir(), "binopsy-tar-"));
     try {
       const file = join(dir, "file.txt");
@@ -108,17 +108,21 @@ describe("Examples", () => {
         new URL("../examples/tar.ts", import.meta.url),
       );
       writeFileSync(file, "hello");
-      node(example, "pack", archive, file);
+      writeFileSync(archive, ""); // From before: left out of the archive
+      node(example, "pack", archive, dir);
       const wire = readFileSync(archive);
-      expect(wire).toHaveLength(2048);
-      expect(wire.subarray(512, 517).toString()).toBe("hello");
+      // The directory, the file and its data, and the end.
+      expect(wire).toHaveLength(2560);
+      expect(wire.subarray(1024, 1029).toString()).toBe("hello");
       const sum = wire
         .subarray(0, 512)
         .reduce((n, b, i) => n + (i >= 148 && i < 156 ? 32 : b), 0);
       expect(Number.parseInt(wire.subarray(148, 156).toString(), 8)).toBe(sum);
       // Two blocks of zeros end the archive.
-      expect(wire.subarray(1024).every((b) => b === 0)).toBe(true);
-      expect(node(example, "list", archive)).toMatch(/0 5 .*file\.txt/u);
+      expect(wire.subarray(1536).every((b) => b === 0)).toBe(true);
+      const listing = node(example, "list", archive);
+      expect(listing).toMatch(/0 5 .*file\.txt/u);
+      expect(listing).not.toMatch(/archive\.tar/u);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

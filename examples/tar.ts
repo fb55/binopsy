@@ -13,7 +13,7 @@ import {
   readFileSync,
   statSync,
 } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 
@@ -90,7 +90,8 @@ export function pack(entry: Omit<Input<typeof Entry>, "checksum">): Uint8Array {
   return Entry.encode({ ...entry, checksum: sum });
 }
 
-function* entries(path: string): Generator<Uint8Array> {
+function* entries(path: string, archive: string): Generator<Uint8Array> {
+  if (resolve(path) === archive) return;
   const stat = statSync(path);
   const directory = stat.isDirectory();
   yield pack({
@@ -111,7 +112,9 @@ function* entries(path: string): Generator<Uint8Array> {
     data: directory ? new Uint8Array(0) : readFileSync(path),
   });
   if (directory) {
-    for (const name of readdirSync(path)) yield* entries(join(path, name));
+    for (const name of readdirSync(path)) {
+      yield* entries(join(path, name), archive);
+    }
   }
 }
 
@@ -119,10 +122,11 @@ function* entries(path: string): Generator<Uint8Array> {
  * The archive of `paths`.
  *
  * @param paths The files and directories to archive.
+ * @param archive The absolute path of the archive, which is left out.
  * @yields The entries of `paths`, then the two zero blocks that end an archive.
  */
-function* tarball(paths: string[]): Generator<Uint8Array> {
-  for (const path of paths) yield* entries(path);
+function* tarball(paths: string[], archive: string): Generator<Uint8Array> {
+  for (const path of paths) yield* entries(path, archive);
   yield new Uint8Array(1024);
 }
 
@@ -130,7 +134,10 @@ function* tarball(paths: string[]): Generator<Uint8Array> {
 if (import.meta.main) {
   const [command, archive, ...paths] = process.argv.slice(2);
   if (command === "pack") {
-    await pipeline(Readable.from(tarball(paths)), createWriteStream(archive));
+    await pipeline(
+      Readable.from(tarball(paths, resolve(archive))),
+      createWriteStream(archive),
+    );
   } else if (command === "list") {
     for await (const entry of decodeStream(Entry, createReadStream(archive))) {
       if (entry.name) {
