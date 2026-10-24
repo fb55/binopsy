@@ -103,9 +103,11 @@ class Values<O> implements AsyncIterableIterator<O, undefined> {
 
   async return(): Promise<IteratorResult<O, undefined>> {
     this.done = true;
-    // After a chunk being waited for arrives (its values are dropped).
+    // Closing may settle the pending read; its values are dropped.
+    const closing = this.close();
+    closing.catch(() => undefined);
     await this.queue;
-    await this.close();
+    await closing;
     return DONE;
   }
 

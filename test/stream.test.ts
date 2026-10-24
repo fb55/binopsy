@@ -219,6 +219,37 @@ describe("Streams", () => {
     expect(returned).toBe(1);
   });
 
+  it("close sources that settle a pending read when returned", async () => {
+    let release!: () => void;
+    let returned = 0;
+    const source: AsyncIterator<Uint8Array> & AsyncIterable<Uint8Array> = {
+      [Symbol.asyncIterator]() {
+        return this;
+      },
+      next: () =>
+        new Promise((resolve) => {
+          release = () => resolve({ value: undefined, done: true });
+        }),
+      return: async () => {
+        returned++;
+        release();
+        return { value: undefined, done: true };
+      },
+    };
+    const stream = decodeStream(u8, source);
+    const pending = stream.next();
+    await setImmediate();
+    await expect(stream.return!()).resolves.toStrictEqual({
+      value: undefined,
+      done: true,
+    });
+    await expect(pending).resolves.toStrictEqual({
+      value: undefined,
+      done: true,
+    });
+    expect(returned).toBe(1);
+  });
+
   it("share closing their source between concurrent returns", async () => {
     let finish!: () => void;
     let closed = 0;
