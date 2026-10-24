@@ -38,7 +38,7 @@
     "prepack": "npm run build",
     "test": "vitest run",
     "coverage": "vitest run --coverage",
-    "lint": "oxlint && oxfmt --check && tsc && npm run build && tsc -p test/package && npm run lint:generated",
+    "lint": "npm run build && oxlint && oxfmt --check && tsc && tsc -p test/package && npm run lint:generated",
     "lint:generated": "node test/lint-generated.ts",
     "format": "oxfmt"
   },
