@@ -112,7 +112,7 @@ export abstract class Codec<O = unknown, I = O, Ctx = unknown> {
    */
   emitBody(g: Gen, selection: Selection): string {
     if (!g.encoding) return this.emitRead(g, selection !== "none");
-    this.emitWrite(g, "v");
+    writeValue(g, this, "v");
     return "";
   }
 
@@ -469,3 +469,38 @@ const pool = {
     }
   },
 };
+
+/**
+ * Emits code filling in an omitted value with the default `codec` gives.
+ *
+ * @param g The generator of the function.
+ * @param codec The codec of the value.
+ * @param value The variable holding the value.
+ * @internal
+ */
+export function fillIn(g: Gen, codec: AnyCodec, value: string): void {
+  const { preset } = codec;
+  if (preset) {
+    g.line(`if (${value} === undefined) ${value} = ${g.k(preset.value)};`);
+  } else {
+    codec.emitFill(g, value);
+  }
+}
+
+/**
+ * Emits code encoding `value` (in a variable, which later fields read); when
+ * sizing a value of a fixed size, only its default and its size.
+ *
+ * @param g The generator of the function.
+ * @param codec The codec of the value.
+ * @param value The variable holding the value.
+ * @internal
+ */
+export function writeValue(g: Gen, codec: AnyCodec, value: string): void {
+  if (g.mode === "size" && Number.isFinite(codec.size)) {
+    codec.emitFill(g, value);
+    g.skip(codec.size);
+  } else {
+    codec.emitWrite(g, value);
+  }
+}

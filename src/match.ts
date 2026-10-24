@@ -2,6 +2,8 @@
 import type { structured } from "./bin.ts";
 import {
   Codec,
+  fillIn,
+  writeValue,
   type AnyCase,
   type AnyCodec,
   type Context,
@@ -202,7 +204,7 @@ export class Match extends Codec {
   emitWrite(g: Gen, value: string): void {
     this.emitSwitch(g, (codec) => {
       if (codec.preset) fillIn(g, codec, value);
-      write(g, codec, value);
+      writeValue(g, codec, value);
     });
   }
 
@@ -237,38 +239,5 @@ export class Match extends Codec {
       g.fail("no-match", `"no case for " + String(${tag})`);
     }
     g.line("}");
-  }
-}
-
-/**
- * Emits code filling in an omitted value with the default `codec` gives.
- *
- * @param g The generator of the function.
- * @param codec The codec of the value.
- * @param value The variable holding the value.
- */
-export function fillIn(g: Gen, codec: AnyCodec, value: string): void {
-  const { preset } = codec;
-  if (preset) {
-    g.line(`if (${value} === undefined) ${value} = ${g.k(preset.value)};`);
-  } else {
-    codec.emitFill(g, value);
-  }
-}
-
-/**
- * Emits code encoding `value` (in a variable, which later fields read); when
- * sizing a value of a fixed size, only its default and its size.
- *
- * @param g The generator of the function.
- * @param codec The codec of the value.
- * @param value The variable holding the value.
- */
-export function write(g: Gen, codec: AnyCodec, value: string): void {
-  if (g.mode === "size" && Number.isFinite(codec.size)) {
-    codec.emitFill(g, value);
-    g.skip(codec.size);
-  } else {
-    codec.emitWrite(g, value);
   }
 }

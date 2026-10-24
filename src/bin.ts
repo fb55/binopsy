@@ -4,6 +4,7 @@
  */
 import {
   Codec,
+  writeValue,
   type AnyCase,
   type AnyCodec,
   type Defaulted,
@@ -15,7 +16,6 @@ import {
 import { ALL_FIELDS, type Gen, type Reads, type Selection } from "./compile.ts";
 import {
   Match,
-  write,
   type Value,
   type matchTypes,
   type IsUnion,
@@ -891,7 +891,7 @@ class Parser extends Codec<Obj> {
         if (preset) {
           g.line(`if (${v} === undefined) ${v} = ${g.k(preset.value)};`);
         }
-        write(g, codec, v);
+        writeValue(g, codec, v);
         g.fields.set(name, v);
       } else if (entry.kind === "group") {
         entry.struct.encodeFields(g, object, computed);

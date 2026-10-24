@@ -1,6 +1,8 @@
 /** Codecs built from others: bytes, strings, arrays, regions, conversions, checks and optional values. */
 import {
   Codec,
+  fillIn,
+  writeValue,
   type AnyCodec,
   type Defaulted,
   type defaulted,
@@ -14,7 +16,6 @@ import {
   type Reads,
 } from "./compile.ts";
 import { EncodeError } from "./errors.ts";
-import { fillIn } from "./match.ts";
 import { Primitive } from "./primitives.ts";
 
 /** The names of the fields of type `V` in every variant of `T`. (Mapping `keyof T & string` keeps it from mapping each variant.) */
@@ -1379,7 +1380,7 @@ class Presence extends Codec {
         `${present} ? "must be null (its condition is false)" : "is null, but its condition holds"`,
       );
     }
-    g.block(`if (${present})`, () => this.inner.emitWrite(g, value));
+    g.block(`if (${present})`, () => writeValue(g, this.inner, value));
   }
 }
 

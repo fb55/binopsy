@@ -8,6 +8,7 @@ import {
   literal,
   map,
   match,
+  optional,
   refine,
   sized,
   string,
@@ -53,6 +54,8 @@ describe("Sizes", () => {
     expect(codec.sizeOf(value)).toBe(7);
     const fixed = map(u8, { decode: count(0), encode: count(0) });
     const picked = match(count(1)).case(1, fixed);
+    expect(optional(u8, fixed).sizeOf(0)).toBe(2);
+    expect(sized(u8, fixed).sizeOf(0)).toBe(2);
     expect(fixed.sizeOf(0)).toBe(1);
     expect(
       bin()
