@@ -97,6 +97,9 @@ function* entries(path: string, archive: Stats): Generator<Uint8Array> {
   const stat = statSync(path);
   if (stat.dev === archive.dev && stat.ino === archive.ino) return;
   const directory = stat.isDirectory();
+  if (!directory && !stat.isFile()) {
+    throw new Error(`${path} is neither a file nor a directory`);
+  }
   yield pack({
     name: directory ? `${path}/` : path,
     mode: stat.mode & 0o7777,
