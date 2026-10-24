@@ -7,6 +7,8 @@ type Method =
   | "Uint8"
   | "Int16"
   | "Uint16"
+  | "Int24"
+  | "Uint24"
   | "Int32"
   | "Uint32"
   | "BigInt64"
@@ -20,6 +22,8 @@ const valid: Record<Method, (x: string) => string> = {
   Int8: (x) => `${x} << 24 >> 24 === ${x}`,
   Uint16: (x) => `(${x} & 65535) === ${x}`,
   Int16: (x) => `${x} << 16 >> 16 === ${x}`,
+  Uint24: (x) => `(${x} & 16777215) === ${x}`,
+  Int24: (x) => `${x} << 8 >> 8 === ${x}`,
   Uint32: (x) => `${x} >>> 0 === ${x}`,
   Int32: (x) => `(${x} | 0) === ${x}`,
   BigUint64: (x) =>
@@ -38,27 +42,53 @@ export class Primitive<
   /** Whether values are unsigned integers of up to 32 bits (so they are valid lengths). */
   readonly count: boolean;
   private readonly method: Method;
-  /** The byte order argument of `DataView` methods. */
-  private readonly le: string;
+  private readonly le: boolean;
 
   constructor(name: string, size: number, method: Method, le = false) {
     super(size);
     this.name = name;
     this.count = method.startsWith("Uint");
     this.method = method;
-    this.le = size > 1 ? `, ${le}` : "";
+    this.le = le;
+  }
+
+  /**
+   * The byte order argument of `DataView` methods.
+   *
+   * @returns The argument, after a comma (none for bytes).
+   */
+  private get order(): string {
+    return this.size > 1 ? `, ${this.le}` : "";
+  }
+
+  /**
+   * The bytes of a 24-bit integer at offset `at`, most significant first.
+   *
+   * @param at An expression of the offset.
+   * @returns Indexes into `buf`.
+   */
+  private bytes(at: string): string[] {
+    return (this.le ? [2, 1, 0] : [0, 1, 2]).map((i) =>
+      i === 0 ? `buf[${at}]` : `buf[${at} + ${i}]`,
+    );
   }
 
   /**
    * An expression reading a value at offset `at`.
    *
    * @param at An expression of the offset.
-   * @returns An index into `buf` (for bytes), or a call of a `DataView` method.
+   * @returns An index into `buf` (for bytes), its bytes combined (for 24
+   *   bits), or a call of a `DataView` method.
    */
   expr(at: string): string {
+    if (this.size === 3) {
+      const [high, middle, low] = this.bytes(at);
+      const unsigned = `(${high} << 16 | ${middle} << 8 | ${low})`;
+      return this.method === "Int24" ? `(${unsigned} << 8 >> 8)` : unsigned;
+    }
     return this.method === "Uint8"
       ? `buf[${at}]`
-      : `dv.get${this.method}(${at}${this.le})`;
+      : `dv.get${this.method}(${at}${this.order})`;
   }
 
   emitRead(g: Gen, wanted: boolean): string {
@@ -88,11 +118,18 @@ export class Primitive<
       "invalid",
       `"expected ${this.name}, got " + String(${value})`,
     );
-    g.line(
-      this.method === "Uint8"
-        ? `buf[${at}] = ${value};`
-        : `dv.set${this.method}(${at}, ${value}${this.le});`,
-    );
+    if (this.size === 3) {
+      const [high, middle, low] = this.bytes(at);
+      g.line(
+        `${high} = ${value} >> 16; ${middle} = ${value} >> 8; ${low} = ${value};`,
+      );
+    } else {
+      g.line(
+        this.method === "Uint8"
+          ? `buf[${at}] = ${value};`
+          : `dv.set${this.method}(${at}, ${value}${this.order});`,
+      );
+    }
   }
 }
 
@@ -117,6 +154,14 @@ export const u16be = primitive<number>("u16be", 2, "Uint16");
 export const i16le = primitive<number>("i16le", 2, "Int16", true);
 /** Signed 16-bit integers, big endian. */
 export const i16be = primitive<number>("i16be", 2, "Int16");
+/** Unsigned 24-bit integers, little endian. */
+export const u24le = primitive<number>("u24le", 3, "Uint24", true);
+/** Unsigned 24-bit integers, big endian. */
+export const u24be = primitive<number>("u24be", 3, "Uint24");
+/** Signed 24-bit integers, little endian. */
+export const i24le = primitive<number>("i24le", 3, "Int24", true);
+/** Signed 24-bit integers, big endian. */
+export const i24be = primitive<number>("i24be", 3, "Int24");
 /** Unsigned 32-bit integers, little endian. */
 export const u32le = primitive<number>("u32le", 4, "Uint32", true);
 /** Unsigned 32-bit integers, big endian. */
@@ -156,6 +201,14 @@ export interface Numbers {
   i16le: typeof i16le;
   /** Adds a field of a signed 16-bit integer, big endian. */
   i16be: typeof i16be;
+  /** Adds a field of an unsigned 24-bit integer, little endian. */
+  u24le: typeof u24le;
+  /** Adds a field of an unsigned 24-bit integer, big endian. */
+  u24be: typeof u24be;
+  /** Adds a field of a signed 24-bit integer, little endian. */
+  i24le: typeof i24le;
+  /** Adds a field of a signed 24-bit integer, big endian. */
+  i24be: typeof i24be;
   /** Adds a field of an unsigned 32-bit integer, little endian. */
   u32le: typeof u32le;
   /** Adds a field of an unsigned 32-bit integer, big endian. */
@@ -190,6 +243,10 @@ export const primitives: Numbers = {
   u16be,
   i16le,
   i16be,
+  u24le,
+  u24be,
+  i24le,
+  i24be,
   u32le,
   u32be,
   i32le,

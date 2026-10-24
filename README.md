@@ -431,7 +431,7 @@ Field names are unique: adding a name twice throws when the parser is defined (T
 
 | Codec                                             | Values                                                                                                                  |
 | ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `u8`, `i8`, `u16le`, `i32be`, `f32le`, `f64be`, … | Integers of 8, 16 and 32 bits and floats, little (`le`) or big (`be`) endian (`f32` rounds numbers to 32 bits)          |
+| `u8`, `i8`, `u16le`, `i32be`, `f32le`, `f64be`, … | Integers of 8, 16, 24 and 32 bits and floats, little (`le`) or big (`be`) endian (`f32` rounds numbers to 32 bits)      |
 | `u64le`, `i64be`, …                               | 64-bit integers, as `bigint`                                                                                            |
 | `bytes(length)`                                   | `Uint8Array`s, viewing the input (`new Uint8Array(b)` copies them)                                                      |
 | `string(length, options?)`                        | Strings stored in `length` bytes (see [strings](#strings))                                                              |

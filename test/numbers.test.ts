@@ -1,6 +1,6 @@
 import { describe, it } from "vitest";
 
-import { array, bin, u8 } from "../src/index.ts";
+import { array, bin, i24be, string, u24be, u8 } from "../src/index.ts";
 import { encodeFails, roundtrip, type Standalone } from "./helpers.ts";
 
 describe("Numbers", () => {
@@ -33,6 +33,17 @@ describe("Numbers", () => {
       },
     ],
     [
+      "are integers of 24 bits, also as lengths",
+      bin()
+        .u24le("a")
+        .u24be("b")
+        .i24le("c")
+        .i24be("d")
+        .field("e", string(u24be)),
+      "badcfe fedcba feffff 800000 000002 6869",
+      { a: 0xfedcba, b: 0xfedcba, c: -2, d: -0x800000, e: "hi" },
+    ],
+    [
       "are floats and 64-bit integers",
       bin().f32be("a").f64le("b").u64le("c").i64be("d"),
       "3fc00000 000000000000d0bf ffffffffffffffff 8000000000000000",
@@ -46,5 +57,6 @@ describe("Numbers", () => {
       { a: [256] },
       /expected u8, got 256 in `a\[0\]`/u,
     );
+    encodeFails(i24be, 0x800000, /expected i24be, got 8388608/u);
   });
 });
