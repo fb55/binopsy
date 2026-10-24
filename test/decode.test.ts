@@ -77,7 +77,7 @@ describe("Traces", () => {
 
   it("locate fields in regions, and those stepped over", () => {
     const parser = bin()
-      .u8("a")
+      .bits("a", 8)
       .field("r", sized(1, bin().u8("b")))
       .u8("c");
     const spans = trace(parser.pick("r"), hex("01 02 03"));

@@ -159,14 +159,16 @@ export abstract class Codec<O = unknown, I = O, Ctx = unknown> {
 
   /**
    * The number of bytes `value` encodes to, computed without encoding it
-   * (but for `custom` codecs without a `size`, which are encoded). It skips
-   * the checks of encoding: encoding may still fail.
+   * (but for `custom` codecs without a `size`, which are encoded); that of
+   * a fixed size without looking at it. It skips the checks of encoding:
+   * encoding may still fail.
    *
    * @param value The value to measure.
    * @returns The number of bytes.
    */
   sizeOf(this: Standalone, value: I): number {
     const codec = this as unknown as AnyCodec;
+    if (Number.isFinite(codec.size)) return codec.size;
     const w = new Writer(NOTHING);
     (codec.#sizer ??= compile(codec, "size"))(w, value);
     return w.offset;

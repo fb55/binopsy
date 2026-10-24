@@ -811,10 +811,12 @@ class Parser extends Codec<Obj> {
     g.need(bytes);
     let offset = 0;
     for (const [j, field] of fields.entries()) {
-      if (want(field.name, i + j)) {
-        g.field = field.name;
-        const v = g.let(extract(g.at(), field.order, offset, field.width));
-        if (g.mode === "trace") g.trace(g.at(), v, g.at(bytes));
+      g.field = field.name;
+      const v = want(field.name, i + j)
+        ? g.let(extract(g.at(), field.order, offset, field.width))
+        : "";
+      if (g.mode === "trace") g.trace(g.at(), v, g.at(bytes));
+      if (v) {
         g.fields.set(field.name, v);
         if (output.has(field.name)) parts.push({ name: field.name, v });
       }
@@ -888,7 +890,12 @@ class Parser extends Codec<Obj> {
         if (preset) {
           g.line(`if (${v} === undefined) ${v} = ${g.k(preset.value)};`);
         }
-        codec.emitWrite(g, v);
+        // Sizes of fixed-size fields are known without their values.
+        if (g.mode === "size" && Number.isFinite(codec.size)) {
+          g.skip(codec.size);
+        } else {
+          codec.emitWrite(g, v);
+        }
         g.fields.set(name, v);
       } else if (entry.kind === "group") {
         entry.struct.encodeFields(g, object, computed);

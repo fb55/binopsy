@@ -48,6 +48,11 @@ describe("Sizes", () => {
       f: [0, 0],
     };
     expect(codec.sizeOf(value)).toBe(7);
+    const fixed = map(u8, { decode: count(0), encode: count(0) });
+    expect(fixed.sizeOf(0)).toBe(1);
+    expect(
+      bin().field("s", string(u8)).field("f", fixed).sizeOf({ s: "", f: 0 }),
+    ).toBe(2);
     expect(calls).toBe(0);
     expect(codec.encode(value)).toHaveLength(7);
   });
