@@ -517,14 +517,16 @@ export class Gen {
    * @param code The code of the `DecodeError` (when decoding).
    * @param detail An expression of the error's detail.
    * @param at An expression of the offset of the error.
+   * @param sizes Whether it also guards sizes (sizing skips other checks).
    */
   check(
     failed: string,
     code: DecodeError["code"],
     detail: string,
     at = this.at(),
+    sizes = false,
   ): void {
-    if (this.mode === "size") return;
+    if (this.mode === "size" && !sizes) return;
     const error = this.error(code, detail, at);
     this.line(
       `if (${failed}) throw ${code === "end-of-input" ? this.ending(error) : error};`,

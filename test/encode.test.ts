@@ -70,6 +70,16 @@ describe("Sizes", () => {
     ).toBe(3);
     expect(calls).toBe(0);
     expect(codec.encode(value)).toHaveLength(7);
+    // Lengths are checked: a negative one would take bytes off later fields.
+    const negative = bin()
+      .field(
+        "s",
+        string(() => -1),
+      )
+      .u8("a");
+    expect(() => negative.sizeOf({ s: "", a: 0 })).toThrow(
+      /invalid length -1/u,
+    );
   });
 
   it("get the defaults of matches for later fields", () => {

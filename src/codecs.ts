@@ -106,10 +106,13 @@ function fixed(length: AnyLength, unit = 1): number {
  * @param v An expression of the count.
  */
 function checkCount(g: Gen, v: string): void {
+  // Also when sizing: a negative length would take bytes off later fields.
   g.check(
     `!(Number.isSafeInteger(${v}) && ${v} >= 0)`,
     "invalid",
     `"invalid length " + String(${v})`,
+    g.at(),
+    true,
   );
 }
 
