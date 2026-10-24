@@ -81,14 +81,14 @@ for (let i = 0, o = 0; i < n; o += parts[i++].length) data.set(parts[i], o);
 console.log(`${n} records, ${(data.length / 1e6).toFixed(1)} MB`);
 
 /**
- * Logs the median time of 10 runs (after 3 to warm up).
+ * Logs the median time of 11 runs (after 3 to warm up).
  *
  * @param label The name of what is measured.
  * @param fn The code to time (its result is awaited).
  */
 async function run(label: string, fn: () => unknown): Promise<void> {
   const times: number[] = [];
-  for (let i = 0; i < 13; i++) {
+  for (let i = 0; i < 14; i++) {
     const start = performance.now();
     await fn();
     if (i >= 3) times.push(performance.now() - start);

@@ -177,6 +177,11 @@ export default defineConfig({
   },
   overrides: [
     {
+      // The library runs in browsers too.
+      files: ["src/**", "test/package/**"],
+      rules: { "import/no-nodejs-modules": "error" },
+    },
+    {
       files: [
         "bench/**",
         "examples/**",

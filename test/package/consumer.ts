@@ -1,6 +1,6 @@
 /**
- * A program using binopsy as published: through the built declarations
- * only, in a browser (without Node.js types). Checked by `npm run lint`.
+ * A program using binopsy as published: through its package name and the
+ * built declarations only, in a browser (without Node.js types). Checked by `npm run lint`.
  */
 import {
   array,
@@ -18,7 +18,7 @@ import {
   type Codec,
   type Input,
   type Output,
-} from "../../lib/index.js";
+} from "binopsy";
 
 const Packet = bin()
   .field("magic", literal(u16be, 0xb10))

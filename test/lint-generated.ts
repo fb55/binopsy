@@ -7,7 +7,7 @@
  */
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -23,6 +23,7 @@ if (import.meta.main) {
     typecheck: { enabled: false },
   });
   await tests.close();
+  if (readdirSync(out).length === 0) throw new Error("no functions saved");
   // The generator does not track which variables and code are used (unused
   // and unassigned ones, code after a failure, and resumable decoders that
   // never wait are left in), and arrays of known lengths are allocated at once.
