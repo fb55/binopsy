@@ -510,7 +510,7 @@ Computed fields: with an object of functions, `.computed({ size: …, count: …
 
 ### Streams
 
-`decodeStream(codec, source)` returns an async iterator of the values. Calls of `next` run one after the other. `return()` ends the iteration at once, and closes the source (a pending `next` then gives no value). Errors of the source are thrown as they are.
+`decodeStream(codec, source)` returns an async iterator of the values. Calls of `next` run one after the other. `return()` ends the iteration at once (a pending `next` gives no value), and resolves once the source is closed (async generators close after their pending read). Errors of the source are thrown as they are.
 
 Every value must take at least one byte. A value that reads up to the end of the input, such as `bytes(Infinity)`, ends with the stream. `bytes` values stay valid as long as the source does not reuse its chunks. A value spanning chunks is collected in a buffer of its own (holding the rest of the input, for a value that reads up to its end). Functions in a value may run twice, as it is first decoded as if its chunk held all of it.
 
