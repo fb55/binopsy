@@ -6,12 +6,15 @@ import {
   bytes,
   custom,
   DecodeError,
+  lazy,
   literal,
+  optional,
   Reader,
   sized,
   string,
   trace,
   u8,
+  type Codec,
 } from "../src/index.ts";
 import { hex, type Standalone } from "./helpers.ts";
 
@@ -36,6 +39,40 @@ describe("Traces", () => {
       [["items"], 3, 7],
     ]);
     expect(spans.at(-1)!.value).toStrictEqual([{ kind: 1, name: "a" }]);
+  });
+
+  it("locate fields of recursive values and regions in arrays", () => {
+    interface Node {
+      v: number;
+      next: Node | null;
+    }
+    const Node: Codec<Node> = bin()
+      .u8("v")
+      .field(
+        "next",
+        optional(
+          u8,
+          lazy(() => Node),
+        ),
+      );
+    const parser = bin()
+      .field("node", Node)
+      .field("items", array(sized(1, bin().u8("x")), 2))
+      .u8("tail");
+    const spans = trace(parser, hex("01 01 02 00 03 04 05"));
+    expect(
+      spans.map(({ path, start, end }) => [path, start, end]),
+    ).toStrictEqual([
+      [["node", "v"], 0, 1],
+      [["node", "next", "v"], 2, 3],
+      [["node", "next", "next"], 3, 4],
+      [["node", "next"], 1, 4],
+      [["node"], 0, 4],
+      [["items", 0, "x"], 4, 5],
+      [["items", 1, "x"], 5, 6],
+      [["items"], 4, 6],
+      [["tail"], 6, 7],
+    ]);
   });
 
   it("locate fields in regions, and those stepped over", () => {

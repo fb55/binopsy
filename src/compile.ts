@@ -16,7 +16,7 @@
  * Functions of codecs that read fields of the parser they are in (and do
  * not hold them) get those fields as an object, `s`.
  */
-import type { AnyCodec, Cursor, Span, Writer } from "./codec.ts";
+import type { AnyCodec, Cursor, Writer } from "./codec.ts";
 import {
   DecodeError,
   EncodeError,
@@ -180,30 +180,31 @@ export class Gen {
    */
   trace(start: string, v: string, end = this.at()): void {
     this.line(
-      `cur.trace.push({ path: ${this.path()}, start: ${start}, end: ${end}, value: ${v || "undefined"} });`,
+      `cur.trace.push({ path: [${["...cur.tracePath", ...this.pathOf()].join(", ")}], start: ${start}, end: ${end}, value: ${v || "undefined"} });`,
     );
   }
 
   /**
-   * When tracing, the number of spans before those of a value decoded by a
-   * function of its own (whose paths are completed by `traced`).
+   * When tracing, adds the path of the current field to that of the value,
+   * for a function decoding the field (until `traced`).
    *
-   * @returns The variable holding the number, or "" when not tracing.
+   * @returns The variable holding the length of the path before, or "".
    */
   mark(): string {
-    return this.mode === "trace" ? this.let("cur.trace.length") : "";
+    if (this.mode !== "trace") return "";
+    const before = this.let("cur.tracePath.length");
+    const path = this.pathOf();
+    if (path.length > 0) this.line(`cur.tracePath.push(${path.join(", ")});`);
+    return before;
   }
 
   /**
-   * Puts the path of the current field before those of the spans traced
-   * since `mark`.
+   * Removes the path `mark` added.
    *
    * @param mark The variable `mark` returned.
    */
   traced(mark: string): void {
-    if (mark) {
-      this.line(`${this.k(prefixed)}(cur.trace, ${mark}, ${this.path()});`);
-    }
+    if (mark) this.line(`cur.tracePath.length = ${mark};`);
   }
 
   /**
@@ -684,19 +685,6 @@ export class Gen {
   private pathOf(): string[] {
     const field = this.field === undefined ? [] : [JSON.stringify(this.field)];
     return [...this.prefix, ...field, ...this.indexes];
-  }
-}
-
-/**
- * Puts `path` before those of the spans traced from index `from` on.
- *
- * @param spans The spans traced.
- * @param from The index of the first span to change.
- * @param path The path of the value whose fields they are.
- */
-function prefixed(spans: Span[], from: number, path: Path): void {
-  for (let i = from; i < spans.length; i++) {
-    spans[i].path = [...path, ...spans[i].path];
   }
 }
 

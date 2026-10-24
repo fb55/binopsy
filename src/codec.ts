@@ -229,6 +229,8 @@ export interface Cursor {
   final: boolean;
   /** Where the fields decoded are, when tracing. */
   trace?: Span[];
+  /** The path of the value whose function is tracing. */
+  tracePath?: (string | number)[];
 }
 
 /** Where a field was decoded from. */
@@ -259,6 +261,7 @@ export function trace(
 ): Span[] {
   const cur = cursor(bytes, offset);
   cur.trace = [];
+  cur.tracePath = [];
   compile(codec as unknown as AnyCodec, "trace", "all")(cur);
   return cur.trace;
 }
