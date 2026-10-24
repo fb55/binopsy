@@ -103,8 +103,8 @@ class Values<O> implements AsyncIterableIterator<O, undefined> {
 
   async return(): Promise<IteratorResult<O, undefined>> {
     this.done = true;
-    // A pending read's values are dropped. The source may close only after
-    // it (as async generators do).
+    // A pending read's values are dropped; async generators close only after
+    // that read.
     await this.close();
     return DONE;
   }
