@@ -1,0 +1,218 @@
+import { defineConfig } from "oxlint";
+
+/**
+ * Rules turned off (each group says why they do not fit this code).
+ *
+ * @param rules The names of the rules.
+ * @returns The rules, each turned off.
+ */
+const off = (...rules: string[]): Record<string, "off"> =>
+  Object.fromEntries(rules.map((rule) => [rule, "off"]));
+
+export default defineConfig({
+  plugins: [
+    "eslint",
+    "typescript",
+    "unicorn",
+    "oxc",
+    "import",
+    "jsdoc",
+    "node",
+    "promise",
+    "vitest",
+  ],
+  // Every rule, except those turned off below.
+  categories: {
+    correctness: "error",
+    suspicious: "error",
+    pedantic: "error",
+    perf: "error",
+    style: "error",
+    restriction: "error",
+  },
+  options: { typeAware: true, reportUnusedDisableDirectives: "error" },
+  ignorePatterns: ["lib/"],
+  rules: {
+    eqeqeq: ["error", "smart"],
+    "one-var": ["error", "never"],
+    "func-style": ["error", "declaration", { allowArrowFunctions: true }],
+    "prefer-arrow-callback": ["error", { allowNamedFunctions: true }],
+    "prefer-destructuring": ["error", { object: true, array: false }],
+    "capitalized-comments": [
+      "error",
+      "always",
+      // (Lines continuing a comment continue its sentence.)
+      { ignorePattern: "oxfmt-ignore", ignoreConsecutiveComments: true },
+    ],
+    yoda: ["error", "never"],
+    curly: ["error", "multi-line"],
+    "no-unused-vars": [
+      "error",
+      { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
+    ],
+    "class-methods-use-this": [
+      "error",
+      { exceptMethods: ["emitRead", "emitWrite", "emitBody", "preset"] },
+    ],
+    "unicorn/catch-error-name": ["error", { name: "e" }],
+    "unicorn/numeric-separators-style": [
+      "error",
+      { hexadecimal: { onlyIfContainsSeparator: true } },
+    ],
+    "typescript/explicit-member-accessibility": [
+      "error",
+      { accessibility: "no-public" },
+    ],
+    "typescript/explicit-function-return-type": [
+      "error",
+      { allowExpressions: true },
+    ],
+    "typescript/no-confusing-void-expression": [
+      "error",
+      { ignoreArrowShorthand: true },
+    ],
+    "typescript/switch-exhaustiveness-check": [
+      "error",
+      { considerDefaultExhaustiveForUnions: true },
+    ],
+    "vitest/prefer-lowercase-title": ["error", { ignore: ["describe"] }],
+    "vitest/expect-expect": [
+      "error",
+      {
+        assertFunctionNames: [
+          "expect",
+          "roundtrip",
+          "decodeFails",
+          "encodeFails",
+        ],
+      },
+    ],
+
+    // Binary formats are numbers and bits, and the generator's names are short (`o`, `g`, `v`).
+    ...off("no-magic-numbers", "no-bitwise", "id-length"),
+    // Text is encoded in UTF-16 code units.
+    ...off("unicorn/prefer-code-point"),
+    // The generator uses "" for no value, `undefined` is a value, and `null` is the API's absence.
+    ...off("unicorn/no-null", "no-undefined", "unicorn/no-useless-undefined"),
+    // Modern syntax and the runtime's features are fine.
+    ...off(
+      "oxc/no-async-await",
+      "oxc/no-optional-chaining",
+      "oxc/no-rest-spread-properties",
+      "no-plusplus",
+      "no-continue",
+      "no-ternary",
+      "no-nested-ternary",
+      "unicorn/no-nested-ternary",
+      "unicorn/no-array-reduce",
+      "no-await-in-loop",
+      "promise/avoid-new",
+      "promise/prefer-await-to-then",
+      "node/no-top-level-await",
+      "node/no-sync",
+      "import/no-nodejs-modules",
+      "unicorn/import-style",
+    ),
+    // Async functions without `await` return their values and errors as promises.
+    ...off("require-await", "typescript/require-await"),
+    // Sizes, and orders that do not follow the code's structure.
+    ...off(
+      "max-params",
+      "max-statements",
+      "max-lines",
+      "max-lines-per-function",
+      "max-classes-per-file",
+      "unicorn/max-nested-calls",
+      "sort-keys",
+      "no-use-before-define",
+      "no-inline-comments",
+      "init-declarations",
+    ),
+    // Imports are sorted by oxfmt (in another order), and written as the modules are.
+    ...off(
+      "sort-imports",
+      "import/consistent-type-specifier-style",
+      "import/no-named-export",
+      "import/no-default-export",
+      "import/prefer-default-export",
+      "import/group-exports",
+      "import/exports-last",
+      "import/no-relative-parent-imports",
+    ),
+    // The formatter writes hex digits in lowercase.
+    ...off("unicorn/number-literal-case"),
+    // TypeScript has the types (and infers them for readonly values and assertions).
+    ...off(
+      "jsdoc/require-param-type",
+      "jsdoc/require-returns-type",
+      "jsdoc/require-yields-type",
+      "jsdoc/require-throws-type",
+      "typescript/prefer-readonly-parameter-types",
+      "typescript/no-unsafe-type-assertion",
+      "typescript/no-non-null-assertion",
+      "typescript/promise-function-async",
+    ),
+    // Method signatures, mapped types, `{}` and type aliases are chosen for how they check and infer.
+    ...off(
+      "typescript/method-signature-style",
+      "typescript/consistent-indexed-object-style",
+      "typescript/consistent-type-definitions",
+      "typescript/ban-types",
+      "no-redeclare",
+    ),
+    // Functions converting values declare the types they convert.
+    ...off("unicorn/prefer-native-coercion-functions"),
+    // Tests: tables of cases, assertions in helpers, and `toBe(true)` (stricter than `toBeTruthy()`).
+    ...off(
+      "vitest/prefer-expect-assertions",
+      "vitest/require-test-timeout",
+      "vitest/no-conditional-in-test",
+      "vitest/no-importing-vitest-globals",
+      "vitest/require-hook",
+      "vitest/max-expects",
+      "vitest/prefer-describe-function-title",
+      "vitest/prefer-to-be-truthy",
+      "vitest/prefer-to-be-falsy",
+    ),
+  },
+  overrides: [
+    {
+      files: [
+        "bench/**",
+        "examples/**",
+        "test/fixtures/**",
+        "test/types/examples.test-d.ts",
+      ],
+      rules: off("no-console"),
+    },
+    {
+      // Plain JavaScript has no types to check.
+      files: ["**/*.mjs"],
+      rules: off(
+        "typescript/no-unsafe-argument",
+        "typescript/no-unsafe-assignment",
+        "typescript/no-unsafe-call",
+        "typescript/no-unsafe-member-access",
+        "typescript/no-unsafe-return",
+      ),
+    },
+    {
+      // Tests rely on inferred types (codecs' types are long).
+      files: ["test/**"],
+      rules: off(
+        "typescript/explicit-function-return-type",
+        "typescript/explicit-module-boundary-types",
+      ),
+    },
+    {
+      // Type tests assert with `@ts-expect-error` too (whose values have error types).
+      files: ["test/types/**", "test/package/**"],
+      rules: off(
+        "vitest/expect-expect",
+        "typescript/no-unsafe-assignment",
+        "typescript/no-unsafe-call",
+        "typescript/no-unsafe-return",
+      ),
+    },
+  ],
+});

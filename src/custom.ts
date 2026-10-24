@@ -1,12 +1,7 @@
 /** Codecs of functions of the user's, for formats the other codecs cannot express. */
-import {
-  Codec,
-  DecodeError,
-  EncodeError,
-  within,
-  type AnyCodec,
-} from "./codec.ts";
+import { Codec, type AnyCodec } from "./codec.ts";
 import type { Gen } from "./compile.ts";
+import { DecodeError, EncodeError, within } from "./errors.ts";
 
 /** A value decoded by a custom codec, and the number of bytes it takes. */
 export interface DecodeResult<O> {
@@ -25,7 +20,7 @@ export interface DecodeResult<O> {
  */
 export interface CustomOptions<O, I = O> {
   /** The size of every value in bytes, if it is fixed: `decode` then gets exactly these bytes. */
-  size?: number;
+  size?: number | undefined;
   /** Decodes the value at the start of `bytes`, or returns `undefined` to get more bytes. */
   decode: (bytes: Uint8Array, final: boolean) => DecodeResult<O> | undefined;
   /** The bytes of a value. */
@@ -43,24 +38,39 @@ export function custom<O>(
 export function custom(
   options: CustomOptions<unknown> | Omit<CustomOptions<unknown>, "encode">,
 ): AnyCodec {
-  for (const key of Object.keys(options))
-    if (!["size", "decode", "encode"].includes(key))
+  for (const key of Object.keys(options)) {
+    if (!["size", "decode", "encode"].includes(key)) {
       throw new TypeError(`unknown option \`${key}\``);
+    }
+  }
   const { size } = options;
   if (size !== undefined && !(Number.isSafeInteger(size) && size >= 0)) {
     throw new TypeError(`invalid size ${String(size)}`);
   }
-  if (typeof options.decode !== "function")
+  if (typeof options.decode !== "function") {
     throw new TypeError("`decode` is not a function");
+  }
   const encode = "encode" in options ? options.encode : undefined;
-  if (encode !== undefined && typeof encode !== "function")
+  if (encode !== undefined && typeof encode !== "function") {
     throw new TypeError("`encode` is not a function");
-  return new Custom(size ?? NaN, options.decode, encode) as never;
+  }
+  return new Custom(size ?? Number.NaN, options.decode, encode);
 }
 
 type Decode = CustomOptions<unknown>["decode"];
 
-/** Calls `decode` with `bytes[start..end]`; returns its result (checked), or `undefined`. */
+/**
+ * Calls `decode` with `bytes[start..end]`; returns its result (checked), or
+ * `undefined`.
+ *
+ * @param decode The decode function of the codec.
+ * @param bytes The input.
+ * @param start The offset of the value.
+ * @param end The offset where the input (or region) ends.
+ * @param final Whether no more input will follow.
+ * @param size The size of every value, or `NaN` if it varies.
+ * @returns The value and its size, or `undefined` if more bytes are needed.
+ */
 function decodeWith(
   decode: Decode,
   bytes: Uint8Array,
@@ -77,36 +87,52 @@ function decodeWith(
     throw e instanceof DecodeError ? within(e, start, [], start) : e;
   }
   if (result === undefined) return undefined;
-  const read = (result as DecodeResult<unknown> | null)?.bytesRead as number;
+  const read = (result as Partial<DecodeResult<unknown>> | null)?.bytesRead;
   if (
     typeof result !== "object" ||
     result === null ||
     !("value" in result) ||
+    read === undefined ||
     !(Number.isSafeInteger(read) && read >= 0 && read <= end - start) ||
-    (size === size && read !== size)
+    (Number.isFinite(size) && read !== size)
   ) {
+    const returned =
+      read === undefined
+        ? typeof result === "object" && result !== null
+          ? "no bytesRead"
+          : String(result)
+        : `bytesRead ${read}`;
     throw new DecodeError(
       "invalid",
-      `decode returned ${String(read === undefined ? result : `bytesRead ${read}`)}, not a value and its size in the ${end - start} bytes it got`,
+      `decode returned ${returned}, not a value and its size in the ${end - start} bytes it got`,
       start,
     );
   }
   return result;
 }
 
-/** The bytes `encode` returns for `value` (checked). */
+/**
+ * The bytes `encode` returns for `value` (checked).
+ *
+ * @param encode The encode function of the codec.
+ * @param value The value to encode.
+ * @param size The size of every value, or `NaN` if it varies.
+ * @returns The bytes, checked to be a `Uint8Array` of the size.
+ */
 function encodeWith(
   encode: CustomOptions<unknown>["encode"],
   value: unknown,
   size: number,
 ): Uint8Array {
   const bytes = encode(value);
-  if (!(bytes instanceof Uint8Array))
+  if (!(bytes instanceof Uint8Array)) {
     throw new EncodeError(`encode returned ${String(bytes)}, not bytes`);
-  if (size === size && bytes.length !== size)
+  }
+  if (Number.isFinite(size) && bytes.length !== size) {
     throw new EncodeError(
       `encode returned ${bytes.length} bytes, but the size is ${size}`,
     );
+  }
   return bytes;
 }
 
@@ -154,8 +180,7 @@ class Custom extends Codec {
 
   emitWrite(g: Gen, value: string): void {
     if (!this.toBytes) {
-      g.check(
-        "true",
+      g.fail(
         "invalid",
         '"this value can only be decoded (it has no encode function)"',
       );

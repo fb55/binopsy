@@ -1,15 +1,13 @@
 /** Codecs built from others: bytes, strings, arrays, regions, conversions, checks and optional values. */
 import {
   Codec,
-  ALL_FIELDS,
-  EncodeError,
   type AnyCodec,
   type Defaulted,
   type defaulted,
   type Obj,
-  type Reads,
 } from "./codec.ts";
-import { compile, type Gen } from "./compile.ts";
+import { ALL_FIELDS, compile, type Gen, type Reads } from "./compile.ts";
+import { EncodeError } from "./errors.ts";
 import { Primitive } from "./primitives.ts";
 
 /** The names of the fields of type `V` in every variant of `T`. (Mapping `keyof T & string` keeps it from mapping each variant.) */
@@ -49,7 +47,13 @@ export type LengthNeeds<L, Ctx> = Needs<L, Ctx, number>;
 /** A length at run time. */
 type AnyLength = number | string | AnyCodec | ((fields: Obj) => number);
 
-/** Checks a length when a codec is defined. */
+/**
+ * Checks a length when a codec is defined.
+ *
+ * @param length The length to check.
+ * @param what The name of the length, for the error.
+ * @returns The length, if it is valid.
+ */
 function checked<L>(length: L, what = "length"): L {
   if (
     typeof length === "number"
@@ -69,16 +73,30 @@ function lengthReads(length: AnyLength | undefined): Reads {
   return length instanceof Codec ? length.reads : [];
 }
 
-/** The size of `length` units, if it is a finite number (else `NaN`). */
+/**
+ * The size of `length` units, if it is a finite number (else `NaN`).
+ *
+ * @param length The number of units.
+ * @param unit The size of a unit in bytes.
+ * @returns The size in bytes, or `NaN`.
+ */
 function fixed(length: AnyLength, unit = 1): number {
   const size =
-    typeof length === "number" && Number.isFinite(length) ? length * unit : NaN;
-  if (Number.isFinite(size) && !Number.isSafeInteger(size))
+    typeof length === "number" && Number.isFinite(length)
+      ? length * unit
+      : Number.NaN;
+  if (Number.isFinite(size) && !Number.isSafeInteger(size)) {
     throw new TypeError("length times item size is not a safe integer");
+  }
   return size;
 }
 
-/** Emits a check that `v` is a count (a non-negative safe integer). */
+/**
+ * Emits a check that `v` is a count (a non-negative safe integer).
+ *
+ * @param g The generator of the function.
+ * @param v An expression of the count.
+ */
 function checkCount(g: Gen, v: string): void {
   g.check(
     `!(Number.isSafeInteger(${v}) && ${v} >= 0)`,
@@ -87,7 +105,14 @@ function checkCount(g: Gen, v: string): void {
   );
 }
 
-/** Emits code reading a length; returns it (a number if it is constant). */
+/**
+ * Emits code reading a length; returns it (a number if it is constant).
+ *
+ * @param g The generator of the function.
+ * @param length The length of the value.
+ * @param unit The size of a unit in bytes (lengths of 2-byte units are even).
+ * @returns The number, or an expression of it.
+ */
 function readLength(g: Gen, length: AnyLength, unit = 1): number | string {
   let v: string;
   if (length === Infinity) v = g.rest();
@@ -96,12 +121,20 @@ function readLength(g: Gen, length: AnyLength, unit = 1): number | string {
     v = given(g, length);
     if (!(length instanceof Primitive && length.count)) checkCount(g, v);
   }
-  if (unit === 2)
+  if (unit === 2) {
     g.check(`${v} % 2`, "invalid", `"odd length " + ${v} + " for utf16le"`);
+  }
   return v;
 }
 
-/** The value of a length that is not a number: a field, a function's result, or a count read before. */
+/**
+ * The value of a length that is not a number: a field, a function's result,
+ * or a count read before.
+ *
+ * @param g The generator of the function.
+ * @param length The name of the field, the function, or the codec of the count.
+ * @returns An expression of the length.
+ */
 function given(g: Gen, length: Exclude<AnyLength, number>): string {
   return typeof length === "string"
     ? g.ref(length)
@@ -110,7 +143,15 @@ function given(g: Gen, length: Exclude<AnyLength, number>): string {
       : length.emitRead(g, true);
 }
 
-/** Emits code writing the count `length` is read from, or checking that `count` is the length. */
+/**
+ * Emits code writing the count `length` is read from, or checking that
+ * `count` is the length.
+ *
+ * @param g The generator of the function.
+ * @param length The length of the value.
+ * @param count An expression of the number of units in the value.
+ * @param unit The name of the units, for errors (e.g. "bytes").
+ */
 function writeLength(
   g: Gen,
   length: AnyLength,
@@ -120,7 +161,8 @@ function writeLength(
   if (length === Infinity) return;
   if (length instanceof Codec) {
     const v = g.let(count, "let");
-    return length.emitWrite(g, v);
+    length.emitWrite(g, v);
+    return;
   }
   const expected =
     typeof length === "number" ? String(length) : given(g, length);
@@ -162,11 +204,17 @@ class Bytes extends Codec<Uint8Array> {
   }
 }
 
-/** Bytes of a length (in bytes), as views of the input: `slice()` them to copy them. */
+/**
+ * Bytes of a length (in bytes), as views of the input: `slice()` them to copy
+ * them.
+ *
+ * @param length The number of bytes, a codec of it, a field or a function.
+ * @returns A codec of `Uint8Array`s.
+ */
 export function bytes<Ctx = never, const L extends Length<Ctx> = Length<Ctx>>(
   length: L,
 ): Codec<Uint8Array, Uint8Array, LengthNeeds<L, Ctx>> {
-  return new Bytes(checked(length as AnyLength)) as never;
+  return new Bytes(checked(length as AnyLength));
 }
 
 /** Text encodings. `latin1` maps bytes to the first 256 code points (it is not Windows-1252). */
@@ -176,15 +224,15 @@ export type Encoding = "utf8" | "latin1" | "ascii" | "utf16le";
 interface Text {
   /** The size of a unit (of terminators and padding) in bytes. */
   unit: number;
-  decode(bytes: Uint8Array, start: number, end: number): string;
+  decode: (buf: Uint8Array, start: number, end: number) => string;
   /** The size of `text` in bytes (or -1 if it cannot be encoded). */
-  size(text: string): number;
-  /** Writes `text` at `bytes[offset]`. */
-  write(bytes: Uint8Array, offset: number, text: string): void;
+  size: (text: string) => number;
+  /** Writes `text` at `buf[offset]`; returns its size. */
+  write: (buf: Uint8Array, offset: number, text: string) => number;
 }
 
 type Slice = (this: Uint8Array, start: number, end: number) => string;
-type NodeBuffer = {
+interface NodeBuffer {
   byteLength(text: string): number;
   prototype: Record<
     "utf8Slice" | "latin1Slice" | "asciiSlice" | "ucs2Slice",
@@ -192,28 +240,38 @@ type NodeBuffer = {
   > & {
     utf8Write(this: Uint8Array, text: string, offset: number): number;
   };
-};
+}
 const NodeBuffer = (globalThis as { Buffer?: NodeBuffer }).Buffer;
 
-/** A decoder: a method of Node.js buffers (which are fast), or else `fallback`. */
+/**
+ * A decoder: a method of Node.js buffers (which are fast), or else
+ * `fallback`.
+ *
+ * @param method The name of the method of `Buffer`s.
+ * @param fallback The decoder to use where there are no `Buffer`s.
+ * @returns A function calling the method on the bytes, or `fallback`.
+ */
 function decoder(
   method: keyof NodeBuffer["prototype"],
   fallback: Text["decode"],
 ): Text["decode"] {
   const slice = NodeBuffer?.prototype[method] as Slice | undefined;
-  return slice
-    ? (bytes, start, end) => slice.call(bytes, start, end)
-    : fallback;
+  return slice ? (buf, start, end) => slice.call(buf, start, end) : fallback;
 }
 
-/** Decodes units of `size` bytes (little endian) as character codes, masked by `mask`. */
+/**
+ * Decodes units of `size` bytes (little endian) as character codes, masked
+ * by `mask`.
+ *
+ * @param size The size of a unit in bytes.
+ * @param mask The bits of a unit that are kept.
+ * @returns The `decode` function of a `Text`.
+ */
 function fromCodes(size: 1 | 2, mask = 0xffff): Text["decode"] {
-  return (bytes, start, end) => {
+  return (buf, start, end) => {
     const codes = [];
     for (let i = start; i < end; i += size) {
-      codes.push(
-        (size === 1 ? bytes[i] : bytes[i] | (bytes[i + 1] << 8)) & mask,
-      );
+      codes.push((size === 1 ? buf[i] : buf[i] | (buf[i + 1] << 8)) & mask);
     }
     let text = "";
     for (let i = 0; i < codes.length; i += 4096) {
@@ -223,7 +281,13 @@ function fromCodes(size: 1 | 2, mask = 0xffff): Text["decode"] {
   };
 }
 
-/** The size of text whose characters are all at most `max` (one byte each), or -1. */
+/**
+ * The size of text whose characters are all at most `max` (one byte each),
+ * or -1.
+ *
+ * @param max The largest character code that can be encoded.
+ * @returns The `size` function of a `Text`.
+ */
 function codesSize(max: number): Text["size"] {
   return (text) => {
     for (let i = 0; i < text.length; i++) {
@@ -233,8 +297,9 @@ function codesSize(max: number): Text["size"] {
   };
 }
 
-function writeCodes(bytes: Uint8Array, offset: number, text: string): void {
-  for (let i = 0; i < text.length; i++) bytes[offset + i] = text.charCodeAt(i);
+function writeCodes(buf: Uint8Array, offset: number, text: string): number {
+  for (let i = 0; i < text.length; i++) buf[offset + i] = text.charCodeAt(i);
+  return text.length;
 }
 
 const utf8Decoder = new TextDecoder("utf-8", { ignoreBOM: true });
@@ -243,14 +308,14 @@ const utf8Encoder = new TextEncoder();
 const texts: Record<Encoding, Text> = {
   utf8: {
     unit: 1,
-    decode: decoder("utf8Slice", (bytes, start, end) =>
-      utf8Decoder.decode(bytes.subarray(start, end)),
+    decode: decoder("utf8Slice", (buf, start, end) =>
+      utf8Decoder.decode(buf.subarray(start, end)),
     ),
     size: (text) => (NodeBuffer ? NodeBuffer.byteLength(text) : utf8Size(text)),
-    write: (bytes, offset, text) => {
-      if (NodeBuffer) NodeBuffer.prototype.utf8Write.call(bytes, text, offset);
-      else utf8Encoder.encodeInto(text, bytes.subarray(offset));
-    },
+    write: (buf, offset, text) =>
+      NodeBuffer
+        ? NodeBuffer.prototype.utf8Write.call(buf, text, offset)
+        : utf8Encoder.encodeInto(text, buf.subarray(offset)).written,
   },
   latin1: {
     unit: 1,
@@ -268,17 +333,23 @@ const texts: Record<Encoding, Text> = {
     unit: 2,
     decode: decoder("ucs2Slice", fromCodes(2)),
     size: (text) => 2 * text.length,
-    write: (bytes, offset, text) => {
+    write: (buf, offset, text) => {
       for (let i = 0; i < text.length; i++) {
         const c = text.charCodeAt(i);
-        bytes[offset + 2 * i] = c & 0xff;
-        bytes[offset + 2 * i + 1] = c >> 8;
+        buf[offset + 2 * i] = c & 0xff;
+        buf[offset + 2 * i + 1] = c >> 8;
       }
+      return 2 * text.length;
     },
   },
 };
 
-/** The UTF-8 size of `text` (unpaired surrogates become U+FFFD). */
+/**
+ * The UTF-8 size of `text` (unpaired surrogates become U+FFFD).
+ *
+ * @param text The text to measure.
+ * @returns The number of bytes.
+ */
 function utf8Size(text: string): number {
   let size = 0;
   for (let i = 0; i < text.length; i++) {
@@ -294,7 +365,14 @@ function utf8Size(text: string): number {
   return size;
 }
 
-/** The encoded size of `text` (checking that it is a string that can be encoded). */
+/**
+ * The encoded size of `text` (checking that it is a string that can be
+ * encoded).
+ *
+ * @param text The value to encode.
+ * @param encoding The text encoding.
+ * @returns The number of bytes.
+ */
 function textSize(text: unknown, encoding: Encoding): number {
   if (typeof text !== "string") {
     throw new EncodeError(`expected a string, got ${String(text)}`);
@@ -304,26 +382,45 @@ function textSize(text: unknown, encoding: Encoding): number {
   return size;
 }
 
-/** The offset of the first unit `u` (of `size` bytes) in `bytes[start..end]`, or `end`. */
+/**
+ * The offset of the first unit `u` (of `size` bytes) in `buf[start..end]`, or
+ * `end`.
+ *
+ * @param buf The bytes to search.
+ * @param start The offset where the search starts.
+ * @param end The offset where the search ends.
+ * @param size The size of a unit in bytes.
+ * @param u The unit to find.
+ * @returns The offset of the unit, or `end` if it is not found.
+ */
 function find(
-  bytes: Uint8Array,
+  buf: Uint8Array,
   start: number,
   end: number,
   size: number,
   u: number,
 ): number {
   if (size === 1) {
-    const at = bytes.subarray(start, end).indexOf(u);
-    return at < 0 ? end : start + at;
+    const at = buf.subarray(start, end).indexOf(u);
+    return at === -1 ? end : start + at;
   }
   let e = start;
-  while (e < end && (bytes[e] | (bytes[e + 1] << 8)) !== u) e += 2;
+  while (e < end && (buf[e] | (buf[e + 1] << 8)) !== u) e += 2;
   return e;
 }
 
-/** The end of `bytes[start..end]` without trailing units `u` (of `size` bytes). */
+/**
+ * The end of `buf[start..end]` without trailing units `u` (of `size` bytes).
+ *
+ * @param buf The bytes of the text.
+ * @param start The offset of the text.
+ * @param end The offset after the text.
+ * @param size The size of a unit in bytes.
+ * @param u The unit to remove.
+ * @returns The offset after the last unit that is not `u`, or `start`.
+ */
 function trim(
-  bytes: Uint8Array,
+  buf: Uint8Array,
   start: number,
   end: number,
   size: number,
@@ -332,36 +429,46 @@ function trim(
   let e = end;
   while (
     e > start &&
-    (size === 1 ? bytes[e - 1] : bytes[e - 2] | (bytes[e - 1] << 8)) === u
-  )
+    (size === 1 ? buf[e - 1] : buf[e - 2] | (buf[e - 1] << 8)) === u
+  ) {
     e -= size;
+  }
   return e;
 }
 
-/** Fills `bytes[start..end]` with units `u` (of `size` bytes). */
+/**
+ * Fills `buf[start..end]` with units `u` (of `size` bytes).
+ *
+ * @param buf The bytes to fill.
+ * @param start The offset of the first unit.
+ * @param end The offset after the last unit.
+ * @param size The size of a unit in bytes.
+ * @param u The unit to write.
+ */
 function fill(
-  bytes: Uint8Array,
+  buf: Uint8Array,
   start: number,
   end: number,
   size: number,
   u: number,
 ): void {
-  if (size === 1 || u >> 8 === (u & 0xff)) bytes.fill(u & 0xff, start, end);
-  else
+  if (size === 1 || u >> 8 === (u & 0xff)) buf.fill(u & 0xff, start, end);
+  else {
     for (let i = start; i < end; i += 2) {
-      bytes[i] = u & 0xff;
-      bytes[i + 1] = u >> 8;
+      buf[i] = u & 0xff;
+      buf[i + 1] = u >> 8;
     }
+  }
 }
 
 /** Options of a string stored in its length (or after its count, or up to the end of the input). */
 export interface StringOptions {
   /** The text encoding (default: `"utf8"`). `"utf16le"` keeps code units as they are (including BOMs and unpaired surrogates). */
-  encoding?: Encoding;
+  encoding?: Encoding | undefined;
   /** The byte (or UTF-16 unit) the text ends with, if it is shorter than its storage. */
-  terminator?: number;
+  terminator?: number | undefined;
   /** The byte (or UTF-16 unit) filling the storage after the text (default: zeros); without a terminator, it is removed when decoding. */
-  padRight?: number;
+  padRight?: number | undefined;
 }
 
 /** Options of a string ending with a terminator. */
@@ -373,9 +480,9 @@ export interface TerminatedStringOptions<Ctx = never> {
    * limit): a number, an earlier number field or a function of the
    * earlier fields. A string of `max` bytes has no terminator.
    */
-  max?: Exclude<Length<Ctx>, Codec<number>>;
+  max?: Exclude<Length<Ctx>, Codec<number>> | undefined;
   /** The text encoding (default: `"utf8"`). */
-  encoding?: Encoding;
+  encoding?: Encoding | undefined;
 }
 
 type NoExtra<T, Shape> = {
@@ -388,22 +495,34 @@ type StringBound<L> = L extends { max?: infer M } ? M : L;
 
 const encodings = new Set<string>(["utf8", "latin1", "ascii", "utf16le"]);
 
-/** Checks options when a string is defined: known keys, and units of the encoding. */
+/**
+ * Checks options when a string is defined: known keys, and units of the
+ * encoding.
+ *
+ * @param raw The options given.
+ * @param keys The names of the options the string takes.
+ * @returns The encoding (by default `"utf8"`), terminator and padding.
+ */
 function options(
-  given: object,
+  raw: object,
   keys: readonly string[],
-): { encoding: Encoding; terminator?: number; padRight?: number } {
-  for (const key of Object.keys(given)) {
+): {
+  encoding: Encoding;
+  terminator: number | undefined;
+  padRight: number | undefined;
+} {
+  for (const key of Object.keys(raw)) {
     if (!keys.includes(key)) throw new TypeError(`unknown option \`${key}\``);
   }
-  const o = given as {
+  const o = raw as {
     encoding?: Encoding;
     terminator?: number;
     padRight?: number;
   };
   const encoding = o.encoding ?? "utf8";
-  if (!encodings.has(encoding))
+  if (!encodings.has(encoding)) {
     throw new TypeError(`unknown encoding \`${encoding}\``);
+  }
   const top = encoding === "utf16le" ? 0xffff : 0xff;
   for (const key of ["terminator", "padRight"] as const) {
     const u = o[key];
@@ -437,22 +556,24 @@ export function string(
   opts: StringOptions = {},
 ): AnyCodec {
   if (typeof length === "object" && !(length instanceof Codec)) {
-    if (arguments.length > 1)
+    if (arguments.length > 1) {
       throw new TypeError("terminated string options take no second argument");
+    }
     const { max = Infinity } = length;
     if (max instanceof Codec) throw new TypeError("`max` is not a count");
-    if (length.terminator === undefined)
+    if (length.terminator === undefined) {
       throw new TypeError("a string without a length needs a terminator");
+    }
     return new Str(
       checked(max as AnyLength, "max"),
       options(length, ["terminator", "max", "encoding"]),
       true,
-    ) as never;
+    );
   }
   return new Str(
     checked(length),
     options(opts, ["encoding", "terminator", "padRight"]),
-  ) as never;
+  );
 }
 
 class Str extends Codec<string> {
@@ -469,10 +590,15 @@ class Str extends Codec<string> {
     opts: ReturnType<typeof options>,
     terminated = false,
   ) {
-    const unit = texts[opts.encoding].unit;
-    if (typeof length === "number" && Number.isFinite(length) && length % unit)
+    const { unit } = texts[opts.encoding];
+    if (
+      typeof length === "number" &&
+      Number.isFinite(length) &&
+      length % unit
+    ) {
       throw new TypeError(`odd length ${length} for utf16le`);
-    super(terminated ? NaN : fixed(length), false, lengthReads(length));
+    }
+    super(terminated ? Number.NaN : fixed(length), false, lengthReads(length));
     this.length = length;
     this.terminated = terminated;
     this.encoding = opts.encoding;
@@ -493,18 +619,24 @@ class Str extends Codec<string> {
       const { unit, terminator, pad } = this;
       const [start, stop] = [g.at(), g.at(n)];
       const e =
-        terminator !== undefined
-          ? g.callback(find, "buf", start, stop, `${unit}`, `${terminator}`)
-          : pad !== undefined
-            ? g.callback(trim, "buf", start, stop, `${unit}`, `${pad}`)
-            : stop;
+        terminator === undefined
+          ? pad === undefined
+            ? stop
+            : g.callback(trim, "buf", start, stop, `${unit}`, `${pad}`)
+          : g.callback(find, "buf", start, stop, `${unit}`, `${terminator}`);
       v = g.let(`${g.k(texts[this.encoding].decode)}(buf, ${start}, ${e})`);
     }
     g.skip(n);
     return v;
   }
 
-  /** Reads a string up to its terminator (or `max` bytes). */
+  /**
+   * Reads a string up to its terminator (or `max` bytes).
+   *
+   * @param g The generator of the function.
+   * @param wanted Whether the value is decoded (else it is stepped over).
+   * @returns The variable holding the string, or "" if it is not wanted.
+   */
   private readTerminated(g: Gen, wanted: boolean): string {
     const { unit } = this;
     const t = this.terminator!;
@@ -541,6 +673,15 @@ class Str extends Codec<string> {
 
   emitWrite(g: Gen, value: string): void {
     const { unit, terminator, pad, length } = this;
+    if (
+      this.encoding === "utf8" &&
+      terminator === undefined &&
+      pad === undefined &&
+      (length === Infinity || length instanceof Primitive)
+    ) {
+      writeFirst(g, value, length);
+      return;
+    }
     const size = g.callback(textSize, value, JSON.stringify(this.encoding));
     const t = terminator === undefined ? 0 : unit;
     if (this.terminated) {
@@ -553,13 +694,15 @@ class Str extends Codec<string> {
         `"has " + ${size} + " bytes, more than its maximum " + ${max}`,
       );
       const n = g.let(`${size} < ${max} ? ${size} + ${unit} : ${size}`);
-      return this.store(g, value, size, n);
+      this.store(g, value, size, n);
+      return;
     }
     if (length instanceof Codec || length === Infinity) {
       // The text, then the terminator.
       const n = g.let(`${size} + ${t}`);
       if (length instanceof Codec) writeLength(g, length, n, "bytes");
-      return this.store(g, value, size, n);
+      this.store(g, value, size, n);
+      return;
     }
     // The text, the terminator if there is room, then padding.
     const n = readLength(g, length, unit);
@@ -578,7 +721,15 @@ class Str extends Codec<string> {
     this.store(g, value, size, n);
   }
 
-  /** Writes the text of `size` bytes, and its terminator and padding up to `n` bytes. */
+  /**
+   * Writes the text of `size` bytes, and its terminator and padding up to `n`
+   * bytes.
+   *
+   * @param g The generator of the function.
+   * @param value The variable holding the text.
+   * @param size The variable holding the size of the text in bytes.
+   * @param n The number of bytes the string takes, or an expression of it.
+   */
   private store(g: Gen, value: string, size: string, n: number | string): void {
     const { unit, terminator, pad, encoding } = this;
     g.need(n);
@@ -600,20 +751,48 @@ class Str extends Codec<string> {
       g.check(`${kept} !== ${end}`, "invalid", '"ends with its padding"');
     }
     const rest = `${start} + ${n}`;
-    if (terminator !== undefined) {
+    if (terminator === undefined) {
+      g.line(
+        `if (${end} < ${rest}) ${g.k(fill)}(buf, ${end}, ${rest}, ${unit}, ${pad ?? 0});`,
+      );
+    } else {
       g.line(
         `if (${end} < ${rest}) ${g.k(fill)}(buf, ${end}, ${end} + ${unit}, ${unit}, ${terminator});`,
       );
       g.line(
         `if (${end} + ${unit} < ${rest}) ${g.k(fill)}(buf, ${end} + ${unit}, ${rest}, ${unit}, ${pad ?? 0});`,
       );
-    } else {
-      g.line(
-        `if (${end} < ${rest}) ${g.k(fill)}(buf, ${end}, ${rest}, ${unit}, ${pad ?? 0});`,
-      );
     }
     g.skip(n);
   }
+}
+
+/**
+ * Writes UTF-8 text, then its count (of a fixed size) before it: making
+ * room for 3 bytes per UTF-16 unit (if there is) saves measuring the text.
+ *
+ * @param g The generator of the function.
+ * @param value The variable holding the text.
+ * @param count The codec of the count before the text, or `Infinity` for none.
+ */
+function writeFirst(g: Gen, value: string, count: Primitive | number): void {
+  g.check(
+    `typeof ${value} !== "string"`,
+    "invalid",
+    `"expected a string, got " + String(${value})`,
+  );
+  const before = count instanceof Primitive ? count.size : 0;
+  const room = g.let(`3 * ${value}.length`, "let");
+  g.line(
+    `if (${g.at(before)} + ${room} > buf.length) ${room} = ${g.k(texts.utf8.size)}(${value});`,
+  );
+  const plus = (n: string): string => (before ? `${before} + ${n}` : n);
+  g.need(plus(room));
+  const size = g.let(
+    `${g.k(texts.utf8.write)}(buf, ${g.at(before)}, ${value})`,
+  );
+  if (count instanceof Primitive) count.store(g, size, g.at());
+  g.skip(plus(size));
 }
 
 /** Items until one passes `until` (which ends the array). */
@@ -628,11 +807,9 @@ class List extends Codec<unknown[]> {
   constructor(item: AnyCodec, length: AnyLength | Until<unknown>) {
     const counted = typeof length !== "object" || length instanceof Codec;
     super(
-      length === 0 ? 0 : counted ? fixed(length as AnyLength, item.size) : NaN,
+      length === 0 ? 0 : counted ? fixed(length, item.size) : Number.NaN,
       item.checks,
-      counted
-        ? [...lengthReads(length as AnyLength), ...item.reads]
-        : item.reads,
+      counted ? [...lengthReads(length), ...item.reads] : item.reads,
     );
     this.item = item;
     this.length = length;
@@ -647,36 +824,35 @@ class List extends Codec<unknown[]> {
       return this.readUnbounded(g, wanted);
     }
     const n = readLength(g, length);
-    if (
-      Number.isFinite(item.size) &&
-      !item.checks &&
-      (!wanted || item instanceof Primitive)
-    ) {
-      // Items of a fixed size: one bounds check.
-      const size =
-        typeof n === "number" ? n * item.size : `${n} * ${item.size}`;
+    const each = Number.isFinite(item.size) ? item.size : 0;
+    if (Number.isFinite(item.size)) {
+      // Items of a fixed size: one bounds check (and none read, if none checks anything).
+      const size = typeof n === "number" ? n * each : `${n} * ${each}`;
       g.need(size);
-      let v = "";
-      if (wanted) {
-        v = g.let(`new Array(${n})`);
-        g.loop(String(n), (i) =>
-          g.line(
-            `${v}[${i}] = ${(item as Primitive).expr(g.at(`${i} * ${item.size}`))};`,
-          ),
-        );
+      if (!wanted && !item.checks) {
+        g.skip(size);
+        return "";
       }
-      g.skip(size);
-      return v;
     }
     const v = wanted ? g.let(`new Array(${n})`) : "";
-    g.loop(String(n), (i) => {
-      const x = item.emitRead(g, wanted);
-      if (wanted) g.line(`${v}[${i}] = ${x};`);
-    });
+    g.loop(
+      String(n),
+      (i) => {
+        const x = item.emitRead(g, wanted);
+        if (wanted) g.line(`${v}[${i}] = ${x};`);
+      },
+      each,
+    );
     return v;
   }
 
-  /** Items up to the end of the input, or until one passes `until`. */
+  /**
+   * Items up to the end of the input, or until one passes `until`.
+   *
+   * @param g The generator of the function.
+   * @param wanted Whether the value is decoded (else it is stepped over).
+   * @returns The variable holding the array, or "" if it is not wanted.
+   */
   private readUnbounded(g: Gen, wanted: boolean): string {
     const { item, length } = this;
     const until =
@@ -692,7 +868,7 @@ class List extends Codec<unknown[]> {
       g.flush();
       // An item reading nothing would be read forever.
       g.check(`o === ${start}`, "invalid", '"an item took no bytes"');
-      if (ends) g.line(`if (${ends}) break;`);
+      if (ends !== undefined) g.line(`if (${ends}) break;`);
     });
     return v;
   }
@@ -711,7 +887,7 @@ class List extends Codec<unknown[]> {
       g.loop(count, (i) => {
         const x = g.let(`${value}[${i}]`, "let");
         item.emitWrite(g, x);
-        const ends = g.callback((length as Until<unknown>).until, x);
+        const ends = g.callback(length.until, x);
         g.check(
           `!${ends} === (${i} === ${count} - 1)`,
           "invalid",
@@ -720,7 +896,7 @@ class List extends Codec<unknown[]> {
       });
       return;
     }
-    writeLength(g, length as AnyLength, count, "items");
+    writeLength(g, length, count, "items");
     if (item instanceof Primitive) {
       // Numbers: room for all of them first.
       const size = `${count} * ${item.size}`;
@@ -730,7 +906,14 @@ class List extends Codec<unknown[]> {
       );
       g.skip(size);
     } else {
-      g.loop(count, (i) => item.emitWrite(g, g.let(`${value}[${i}]`, "let")));
+      // Items of a fixed size: room for all of them first.
+      const each = Number.isFinite(item.size) ? item.size : 0;
+      if (each) g.need(`${count} * ${each}`);
+      g.loop(
+        count,
+        (i) => item.emitWrite(g, g.let(`${value}[${i}]`, "let")),
+        each,
+      );
     }
   }
 }
@@ -747,7 +930,8 @@ export function array<
   Ctx = never,
   ItemCtx = unknown,
   const L extends Length<Ctx> | { until: (item: O) => boolean } =
-    Length<Ctx> | { until: (item: O) => boolean },
+    | Length<Ctx>
+    | { until: (item: O) => boolean },
 >(
   item: Codec<O, I, ItemCtx>,
   length: L &
@@ -771,11 +955,12 @@ export function array(
     for (const key of Object.keys(length)) {
       if (key !== "until") throw new TypeError(`unknown option \`${key}\``);
     }
-    if (typeof length.until !== "function")
+    if (typeof length.until !== "function") {
       throw new TypeError("`until` is not a function");
-    length = { until: length.until };
-  } else checked(length);
-  return new List(item, length) as never;
+    }
+    return new List(item, { until: length.until });
+  }
+  return new List(item, checked(length));
 }
 
 class Sized extends Codec {
@@ -852,6 +1037,10 @@ class Sized extends Codec {
  * bytes it does not read are skipped); when encoding, the rest of them is
  * filled with zeros. A size read before the region (which must be of a
  * fixed size, e.g. `u32le`) is written after its value.
+ *
+ * @param length The number of bytes, a codec of it, a field or a function.
+ * @param codec The codec of the value in the region.
+ * @returns A codec of the value.
  */
 export function sized<
   O,
@@ -865,7 +1054,7 @@ export function sized<
   codec: Codec<O, I, ItemCtx> & { readonly [defaulted]?: D },
 ): Codec<O, I, ItemCtx & LengthNeeds<L, Ctx>> &
   ([D] extends [true] ? Defaulted : unknown) {
-  return new Sized(checked(length as AnyLength), codec as never) as never;
+  return new Sized(checked(length as AnyLength), codec) as never;
 }
 
 /** A codec that reads `inner` and checks or converts its values. */
@@ -884,10 +1073,11 @@ class Literal extends Wrapper {
   private readonly value: Scalar;
 
   constructor(inner: AnyCodec, value: Scalar) {
-    if (!["string", "number", "bigint", "boolean"].includes(typeof value))
+    if (!["string", "number", "bigint", "boolean"].includes(typeof value)) {
       throw new TypeError(
         `a literal must be a string, number, bigint or boolean`,
       );
+    }
     super(inner, true);
     this.value = value;
   }
@@ -896,9 +1086,16 @@ class Literal extends Wrapper {
     return { value: this.value };
   }
 
-  /** An expression that is true if `v` is not the value (NaN and zeros are compared as by `Object.is`). */
+  /**
+   * An expression that is true if `v` is not the value (NaN and zeros are
+   * compared as by `Object.is`).
+   *
+   * @param g The generator of the function.
+   * @param v An expression of the value to compare.
+   * @returns A `!==` comparison, or a negated call of `Object.is`.
+   */
   private differs(g: Gen, v: string): string {
-    return this.value !== this.value || this.value === 0
+    return Number.isNaN(this.value) || this.value === 0
       ? `!Object.is(${v}, ${g.k(this.value)})`
       : `${v} !== ${g.k(this.value)}`;
   }
@@ -924,13 +1121,17 @@ class Literal extends Wrapper {
 /**
  * A fixed value: decoding checks it (as `Object.is`), and encoding writes
  * it. Its input may be omitted (if `codec` encodes it).
+ *
+ * @param codec The codec of the value.
+ * @param value The value: a string, number, bigint or boolean.
+ * @returns A codec of `value`.
  */
 export function literal<O, I, Ctx, const V extends O & Scalar>(
   codec: Codec<O, I, Ctx>,
   value: V,
 ): Codec<V, [V] extends [I] ? V | undefined : never, Ctx> &
   Defaulted<[V] extends [I] ? true : false> {
-  return new Literal(codec as never, value) as never;
+  return new Literal(codec, value) as never;
 }
 
 class Refine extends Wrapper {
@@ -1013,12 +1214,13 @@ class Mapped extends Wrapper {
   }
 
   emitWrite(g: Gen, value: string): void {
-    if (!this.toRaw)
-      return g.check(
-        "true",
+    if (!this.toRaw) {
+      g.fail(
         "invalid",
         '"this value can only be decoded (it has no encode function)"',
       );
+      return;
+    }
     this.inner.emitWrite(g, g.callback(this.toRaw, value));
   }
 }
@@ -1055,7 +1257,7 @@ class Presence extends Codec {
     flag?: AnyCodec,
     condition?: string | ((fields: Obj) => unknown),
   ) {
-    super(NaN, inner.checks || Boolean(flag?.checks), [
+    super(Number.NaN, inner.checks || Boolean(flag?.checks), [
       ...(flag ? flag.reads : lengthReads(condition as AnyLength | undefined)),
       ...inner.reads,
     ]);
@@ -1064,10 +1266,15 @@ class Presence extends Codec {
     this.inner = inner;
   }
 
-  /** Emits code computing the condition (`when`); returns it. */
+  /**
+   * Emits code computing the condition (`when`); returns it.
+   *
+   * @param g The generator of the function.
+   * @returns An expression that is truthy if the condition holds.
+   */
   private holds(g: Gen): string {
     const { condition } = this;
-    if (typeof condition === "string") return `Boolean(${g.ref(condition)})`;
+    if (typeof condition === "string") return g.ref(condition);
     const holds = g.callback(condition!, g.context());
     g.check(
       `typeof ${holds} !== "boolean"`,
@@ -1091,30 +1298,34 @@ class Presence extends Codec {
 
   emitWrite(g: Gen, value: string): void {
     g.check(`${value} === undefined`, "invalid", '"expected a value, or null"');
-    const given = g.let(`${value} !== null`);
+    const present = g.let(`${value} !== null`);
     if (this.flag) {
-      this.flag.emitWrite(g, g.let(`${given} ? 1 : 0`, "let"));
+      this.flag.emitWrite(g, g.let(`${present} ? 1 : 0`, "let"));
     } else {
       const holds = this.holds(g);
       g.check(
-        `${holds} !== ${given}`,
+        `Boolean(${holds}) !== ${present}`,
         "invalid",
-        `${given} ? "must be null (its condition is false)" : "is null, but its condition holds"`,
+        `${present} ? "must be null (its condition is false)" : "is null, but its condition holds"`,
       );
     }
-    g.block(`if (${given})`, () => this.inner.emitWrite(g, value));
+    g.block(`if (${present})`, () => this.inner.emitWrite(g, value));
   }
 }
 
 /**
  * A value after a flag that is non-zero if it is present, or `null`.
  * Encoding writes 0 for `null`, else 1.
+ *
+ * @param flag The codec of the flag.
+ * @param codec The codec of the value.
+ * @returns A codec of the value, or `null`.
  */
 export function optional<O, I, Ctx = unknown>(
   flag: Codec<number>,
   codec: Codec<O, I, Ctx>,
 ): Codec<O | null, Exclude<I, undefined> | null, Ctx> {
-  return new Presence(codec as never, flag as never) as never;
+  return new Presence(codec, flag) as never;
 }
 
 type Condition<Ctx> =
@@ -1125,6 +1336,10 @@ type Condition<Ctx> =
  * A value if `condition` holds, or `null`: an earlier field is truthy, or a
  * function of the earlier fields returns `true`. Encoding checks that values
  * are `null` exactly when it does not hold.
+ *
+ * @param condition The name of an earlier field, or a function of the fields.
+ * @param codec The codec of the value.
+ * @returns A codec of the value, or `null`.
  */
 export function when<
   O,
@@ -1140,10 +1355,11 @@ export function when<
   Exclude<I, undefined> | null,
   ItemCtx & Needs<C, Ctx, unknown>
 > {
-  if (typeof condition !== "function" && typeof condition !== "string")
+  if (typeof condition !== "function" && typeof condition !== "string") {
     throw new TypeError(`invalid condition ${String(condition)}`);
+  }
   return new Presence(
-    codec as never,
+    codec,
     undefined,
     condition as string | ((fields: Obj) => unknown),
   ) as never;
@@ -1154,7 +1370,7 @@ class Lazy extends Codec {
   #target: AnyCodec | undefined;
 
   constructor(factory: () => AnyCodec) {
-    super(NaN, true);
+    super(Number.NaN, true);
     this.factory = factory;
   }
 
@@ -1179,32 +1395,40 @@ class Lazy extends Codec {
 /**
  * A codec defined later (when first used), for formats that contain
  * themselves: annotate the codec it is in (`const Tree: Codec<Tree> = …`).
+ *
+ * @param factory Returns the codec (it is called once, when first needed).
+ * @returns A codec that decodes and encodes as the codec `factory` returns.
  */
 export function lazy<O, I = O, D extends boolean = false>(
   factory: () => Codec<O, I> & { readonly [defaulted]?: D },
 ): Codec<O, I> & ([D] extends [true] ? Defaulted : unknown) {
-  return new Lazy(factory as never) as never;
+  return new Lazy(factory) as never;
 }
 
 class Fail extends Codec<never> {
   private readonly message: string;
 
   constructor(message: string) {
-    super(NaN, true);
+    super(Number.NaN, true);
     this.message = message;
   }
 
   emitRead(g: Gen): string {
-    g.check("true", "invalid", JSON.stringify(this.message));
+    g.fail("invalid", JSON.stringify(this.message));
     return "undefined";
   }
 
   emitWrite(g: Gen): void {
-    g.check("true", "invalid", JSON.stringify(this.message));
+    g.fail("invalid", JSON.stringify(this.message));
   }
 }
 
-/** Fails decoding and encoding (e.g. for parts that are not supported). */
+/**
+ * Fails decoding and encoding (e.g. for parts that are not supported).
+ *
+ * @param message The detail of the errors.
+ * @returns A codec that fails.
+ */
 export function fail(message: string): Codec<never> {
   return new Fail(message);
 }

@@ -80,17 +80,26 @@ for (let i = 0, o = 0; i < n; o += parts[i++].length) data.set(parts[i], o);
 
 console.log(`${n} records, ${(data.length / 1e6).toFixed(1)} MB`);
 
-async function run(label: string, fn: () => unknown) {
-  await fn(); // Warm up
-  const start = performance.now();
-  await fn();
-  const ms = performance.now() - start;
+/**
+ * Logs the median time of 10 runs (after 3 to warm up).
+ *
+ * @param label The name of what is measured.
+ * @param fn The code to time (its result is awaited).
+ */
+async function run(label: string, fn: () => unknown): Promise<void> {
+  const times: number[] = [];
+  for (let i = 0; i < 13; i++) {
+    const start = performance.now();
+    await fn();
+    if (i >= 3) times.push(performance.now() - start);
+  }
+  const ms = times.toSorted((a, b) => a - b)[5];
   console.log(
     `${label.padEnd(28)} ${ms.toFixed(0).padStart(6)} ms  ${(((n / ms) * 1e3) / 1e6).toFixed(2)} M records/s  ${(((data.length / ms) * 1e3) / 1e6).toFixed(0)} MB/s`,
   );
 }
 
-function readAll(codec: Parameters<Reader["read"]>[0]) {
+function readAll(codec: Parameters<Reader["read"]>[0]): void {
   const reader = new Reader(data);
   let count = 0;
   while (!reader.done) {
@@ -100,11 +109,18 @@ function readAll(codec: Parameters<Reader["read"]>[0]) {
   if (count !== n) throw new Error("bad record count");
 }
 
-async function streamAll() {
-  const chunks = function* () {
-    for (let i = 0; i < data.length; i += 65536)
-      yield data.subarray(i, i + 65536);
-  };
+/**
+ * The data in chunks.
+ *
+ * @yields Chunks of 64 KiB.
+ */
+function* chunks(): Generator<Uint8Array> {
+  for (let i = 0; i < data.length; i += 65_536) {
+    yield data.subarray(i, i + 65_536);
+  }
+}
+
+async function streamAll(): Promise<void> {
   let count = 0;
   for await (const _ of decodeStream(Record, chunks())) count++;
   if (count !== n) throw new Error("bad record count");
@@ -115,6 +131,12 @@ const Skip = Record.pick();
 
 await run("stream (64 KiB chunks)", streamAll);
 await run("decode", () => readAll(Record));
+// (New views, as of bytes received one after the other.)
+await run("decode (each from its bytes)", () => {
+  for (const { buffer, byteOffset, length } of parts) {
+    Record.decode(new Uint8Array(buffer, byteOffset, length));
+  }
+});
 await run("decode (2 fields)", () => readAll(TwoFields));
 await run("decode (skip)", () => readAll(Skip));
 await run("encode", () => {

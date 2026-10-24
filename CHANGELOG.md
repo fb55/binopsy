@@ -59,6 +59,19 @@ Formats keep their bytes with the rewrites below (except where noted), but not t
 - Streams decode values spanning chunks without starting over, work with any async iterable, such as Node.js and web streams, and close their source when stopped.
 - binopsy works in browsers: it uses `Uint8Array`s and `DataView`s instead of `Buffer`s.
 
-`size` can also be unknown before lazy compilation. The former little-endian bit layout is not the new `lsb` layout: use the reversal migration above, with padding last. Audit old UTF-16LE terminated strings: 0.0.0 scanned zero bytes, while the new scanner recognizes complete code units. Mapping keyed arrays must account for duplicate keys and property order. Parent-dependent assertions should refine the whole raw record, and constructor-created parser state needs an explicit map or custom rewrite.
+### More to know when migrating
 
-Callbacks must be pure. Complete-record decoding may be retried with resumable decoding, and custom callbacks can restart with each larger view. Stream records must consume bytes; source errors retain identity. Definitions reject unknown options, invalid bounds, duplicate reachable fields and `__proto__`. Null alone denotes absence. Literal defaults survive sized/lazy wrappers; map/custom inputs accepting undefined remain required keys.
+- The bit layout of `.endianess("little")` is not the `lsb` order: reverse the fields of each run of bit fields, and keep the padding last.
+- Terminators of `utf16le` strings are 16-bit units (0.0.0 looked for a zero byte).
+- Arrays mapped to objects by a key must decide what duplicate keys and the order of keys become.
+- Assertions on other fields of the object (`this` in 0.0.0) become a `refine` of the whole parser.
+- State set by the constructor of `.create(Class)` needs a `map` or a `custom` codec.
+
+### Behaviour to know
+
+- `codec.size` is `NaN` when values vary in size, or (for `lazy`) when it is not known yet.
+- Functions given to codecs must have no side effects: a value may be decoded more than once (a stream decodes again a value that did not fit in its chunk, and calls `custom` decoders again with more bytes).
+- Streamed values must take at least one byte; errors of the source are passed on as they are.
+- Definitions reject unknown options, invalid lengths, duplicate field names and `__proto__`.
+- Absent values (`optional`, `when`) are `null`, never `undefined`.
+- Literals keep their default through `sized` and `lazy`; inputs of `map` and `custom` codecs are required, even if they accept `undefined`.

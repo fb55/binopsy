@@ -14,17 +14,25 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+
 import {
   bin,
   bytes,
   decodeStream,
   map,
   string,
+  type Codec,
   type Input,
 } from "../src/index.ts";
 
-/** A number written as octal digits into `length` bytes, followed by `end`. */
-function octal(length: number, end = "\0") {
+/**
+ * A number written as octal digits into `length` bytes, followed by `end`.
+ *
+ * @param length The size of the field in bytes.
+ * @param end The characters after the digits.
+ * @returns A codec of the number.
+ */
+function octal(length: number, end = "\0"): Codec<number> {
   return map(bytes(length), {
     // The zero blocks that end an archive hold no digits.
     decode: (digits) => Number.parseInt(String.fromCharCode(...digits), 8) || 0,
@@ -36,8 +44,13 @@ function octal(length: number, end = "\0") {
   });
 }
 
-/** The number of bytes padding `size` bytes to whole blocks of 512 bytes. */
-const padding = (size: number) => (512 - (size % 512)) % 512;
+/**
+ * The number of bytes padding `size` bytes to whole blocks of 512 bytes.
+ *
+ * @param size The size of the data in bytes.
+ * @returns The number of bytes, from 0 to 511.
+ */
+const padding = (size: number): number => (512 - (size % 512)) % 512;
 
 /** A header block (512 bytes), followed by the data, padded to whole blocks. */
 export const Entry = bin()
@@ -68,7 +81,13 @@ export const Entry = bin()
     padding: (entry) => new Uint8Array(padding(entry.data.length)),
   });
 
-/** The bytes of an entry; the checksum is the sum of the header's bytes, with its own counted as spaces. */
+/**
+ * The bytes of an entry; the checksum is the sum of the header's bytes, with
+ * its own counted as spaces.
+ *
+ * @param entry The fields of the entry, without its checksum.
+ * @returns The header block, then the data padded to whole blocks.
+ */
 export function pack(entry: Omit<Input<typeof Entry>, "checksum">): Uint8Array {
   const header = Entry.encode({ ...entry, checksum: 0 }).subarray(0, 512);
   const sum =
@@ -104,24 +123,29 @@ function* entries(path: string): Generator<Uint8Array> {
   }
 }
 
+/**
+ * The archive of `paths`.
+ *
+ * @param paths The files and directories to archive.
+ * @yields The entries of `paths`, then the two zero blocks that end an archive.
+ */
+function* tarball(paths: string[]): Generator<Uint8Array> {
+  for (const path of paths) yield* entries(path);
+  yield new Uint8Array(1024);
+}
+
 const [command, archive, ...paths] = process.argv.slice(2);
 if (command === "pack") {
-  // Two zero blocks end the archive.
-  writeFileSync(
-    archive,
-    Buffer.concat([
-      ...paths.flatMap((path) => [...entries(path)]),
-      new Uint8Array(1024),
-    ]),
-  );
+  writeFileSync(archive, Buffer.concat([...tarball(paths)]));
 } else if (command === "list") {
   for await (const entry of decodeStream(Entry, createReadStream(archive))) {
-    if (entry.name)
+    if (entry.name) {
       console.log(
         entry.type,
         entry.size,
         entry.prefix ? `${entry.prefix}/${entry.name}` : entry.name,
       );
+    }
   }
 } else {
   console.error("usage: node examples/tar.ts pack|list <archive.tar> [paths…]");

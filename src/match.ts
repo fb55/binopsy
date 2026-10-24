@@ -2,17 +2,15 @@
 import type { structured } from "./bin.ts";
 import {
   Codec,
-  ALL_FIELDS,
   type AnyCase,
   type AnyCodec,
   type Context,
   type Input,
   type Obj,
   type Output,
-  type Reads,
 } from "./codec.ts";
 import type { KeysOf, Needs } from "./codecs.ts";
-import type { Gen } from "./compile.ts";
+import { ALL_FIELDS, type Gen } from "./compile.ts";
 
 /** Types only: the key of a match's cases. */
 export declare const matchTypes: unique symbol;
@@ -101,6 +99,9 @@ type Selector<Ctx> =
  * for each case (`.field(name, match)` for a value of its own, or
  * `.merge(match)` for cases that are parsers, whose fields are added).
  * Functions of the earlier fields need their argument annotated.
+ *
+ * @param tag The name of an earlier field, or a function of the fields.
+ * @returns A match without cases yet.
  */
 export function match<
   Ctx = never,
@@ -113,21 +114,27 @@ export function match<
   Needs<S, Ctx, Value>,
   S extends (fields: never) => infer R ? R : Value
 > {
-  if (typeof tag !== "function" && typeof tag !== "string")
+  if (typeof tag !== "function" && typeof tag !== "string") {
     throw new TypeError(`invalid tag ${String(tag)}`);
+  }
   return new Match(tag as never, [], undefined) as never;
 }
 
 const scalars = new Set(["string", "number", "bigint", "boolean"]);
 
-/** The JavaScript of `value`, as a `case` label. */
+/**
+ * The JavaScript of `value`, as a `case` label.
+ *
+ * @param value The tag value of a case.
+ * @returns A literal of the value.
+ */
 function label(value: Value): string {
   if (typeof value === "string") return JSON.stringify(value);
   if (typeof value === "bigint") return `${value}n`;
   return Object.is(value, -0) ? "0" : String(value);
 }
 
-/** @internal One of several codecs, picked by a tag (or `otherwise`, for other tag values). */
+/** One of several codecs, picked by a tag (or `otherwise`, for other tag values). @internal */
 export class Match extends Codec {
   readonly tag: string | ((fields: Obj) => Value);
   readonly cases: readonly (readonly [Value, AnyCodec])[];
@@ -141,14 +148,10 @@ export class Match extends Codec {
     const codecs = cases.map(([, codec]) => codec);
     if (otherwise) codecs.push(otherwise);
     const sizes = new Set(codecs.map((codec) => codec.size));
-    super(
-      sizes.size === 1 ? codecs[0].size : NaN,
-      true,
-      codecs.reduce<Reads>(
-        (reads, codec) => [...reads, ...codec.reads],
-        typeof tag === "string" ? [tag] : [ALL_FIELDS],
-      ),
-    );
+    super(sizes.size === 1 ? codecs[0].size : Number.NaN, true, [
+      typeof tag === "string" ? tag : ALL_FIELDS,
+      ...codecs.flatMap((codec) => codec.reads),
+    ]);
     this.tag = tag;
     this.cases = cases;
     this.default = otherwise;
@@ -156,19 +159,23 @@ export class Match extends Codec {
 
   case(value: Value, codec: AnyCodec): Match {
     if (this.default) throw new Error("no cases can follow `otherwise`");
-    if (!scalars.has(typeof value) || value !== value)
+    if (!scalars.has(typeof value) || Number.isNaN(value)) {
       throw new TypeError(`invalid case value ${String(value)}`);
-    if (this.cases.some(([v]) => v === value))
+    }
+    if (this.cases.some(([v]) => v === value)) {
       throw new Error(`${String(value)} already has a case`);
-    if (!(codec instanceof Codec))
+    }
+    if (!(codec instanceof Codec)) {
       throw new TypeError(`the case for ${String(value)} is not a codec`);
+    }
     return new Match(this.tag, [...this.cases, [value, codec]], undefined);
   }
 
   otherwise(codec: AnyCodec): Match {
     if (this.default) throw new Error("a match has one `otherwise`");
-    if (!(codec instanceof Codec))
+    if (!(codec instanceof Codec)) {
       throw new TypeError("`otherwise` is not a codec");
+    }
     return new Match(this.tag, this.cases, codec);
   }
 
@@ -183,35 +190,43 @@ export class Match extends Codec {
 
   emitWrite(g: Gen, value: string): void {
     this.emitSwitch(g, (codec) => {
-      const preset = codec.preset;
-      if (preset)
+      const { preset } = codec;
+      if (preset) {
         g.line(`if (${value} === undefined) ${value} = ${g.k(preset.value)};`);
+      }
       codec.emitWrite(g, value);
     });
   }
 
-  /** Emits a `switch` on the tag, with `body` for each case (the index of `otherwise` is that after the cases). */
+  /**
+   * Emits a `switch` on the tag, with `body` for each case (the index of
+   * `otherwise` is that after the cases).
+   *
+   * @param g The generator of the function.
+   * @param body Emits the code of a case, given its codec and index.
+   */
   emitSwitch(g: Gen, body: (codec: AnyCodec, i: number) => void): void {
     const tag =
       typeof this.tag === "string"
         ? g.ref(this.tag)
         : g.callback(this.tag, g.context());
-    if (typeof this.tag === "function")
+    if (typeof this.tag === "function") {
       g.check(
         `!${g.k(scalars)}.has(typeof ${tag})`,
         "invalid",
         `"the selector returned a nonscalar tag of type " + typeof ${tag}`,
       );
+    }
     g.flush();
     g.line(`switch (${tag}) {`);
-    this.cases.forEach(([value, codec], i) =>
-      g.block(`case ${label(value)}:`, () => body(codec, i), "break; }"),
-    );
+    for (const [i, [value, codec]] of this.cases.entries()) {
+      g.block(`case ${label(value)}:`, () => body(codec, i), "break; }");
+    }
     if (this.default) {
       g.block("default:", () => body(this.default!, this.cases.length));
     } else {
       g.line("default:");
-      g.check("true", "no-match", `"no case for " + String(${tag})`);
+      g.fail("no-match", `"no case for " + String(${tag})`);
     }
     g.line("}");
   }

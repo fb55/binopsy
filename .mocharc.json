@@ -1,4 +1,0 @@
-{
-  "spec": ["test/*.ts"],
-  "ignore": ["test/helpers.ts"]
-}

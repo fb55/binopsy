@@ -1,5 +1,5 @@
 /**
- * The base of all codecs, the cursor and writer they work on, and errors.
+ * The base of all codecs, and the cursor and writer they work on.
  *
  * Codecs are compiled: they emit the JavaScript that decodes and encodes
  * their values (see compile.ts), so that each parser becomes a few
@@ -10,8 +10,10 @@ import {
   type Decoder as Compiled,
   type Encoder,
   type Gen,
+  type Reads,
   type Selection,
 } from "./compile.ts";
+import { EncodeError } from "./errors.ts";
 
 /** Types only: the key of a codec's types (not a property at run time). */
 export declare const types: unique symbol;
@@ -24,11 +26,6 @@ export type Defaulted<D extends boolean = true> = { readonly [defaulted]: D };
 export type Standalone = {
   readonly [types]: { context: (ctx: unknown) => void };
 };
-
-/** A callback reads the complete logical prefix, in addition to named dependencies. */
-export const ALL_FIELDS = Symbol("all fields");
-/** Earlier fields a codec reads (callbacks do not erase the named requirements). */
-export type Reads = readonly (string | typeof ALL_FIELDS)[];
 
 /**
  * Decodes bytes into values of type `O`, and encodes values of type `I`.
@@ -45,9 +42,9 @@ export abstract class Codec<O = unknown, I = O, Ctx = unknown> {
 
   /** Exact size in bytes of every value, if known; `NaN` if it varies (or is not known, e.g. for `lazy`). */
   readonly size: number;
-  /** @internal Whether decoding checks something, so the value is read even when it is not wanted. */
+  /** Whether decoding checks something, so the value is read even when it is not wanted. @internal */
   readonly checks: boolean;
-  /** @internal The earlier fields the codec reads. */
+  /** The earlier fields the codec reads. @internal */
   readonly reads: Reads;
   #decoder: Compiled | undefined;
   #encoder: Encoder | undefined;
@@ -59,29 +56,50 @@ export abstract class Codec<O = unknown, I = O, Ctx = unknown> {
     this.reads = reads;
   }
 
-  /** @internal The value encoding `undefined` writes (for literals), if any. */
+  /**
+   * The value encoding `undefined` writes (for literals), if any.
+   *
+   * @returns An object holding the value, or `undefined` if there is none.
+   * @internal
+   */
   get preset(): { readonly value: unknown } | undefined {
     return undefined;
   }
 
   /**
-   * @internal Emits code that reads a value and returns an expression for
-   * it, or, if it is not `wanted`, steps over it (still running checks) and
-   * returns "".
+   * Emits code that reads a value and returns an expression for it, or, if
+   * it is not `wanted`, steps over it (still running checks) and returns "".
+   *
+   * @internal
    */
   abstract emitRead(g: Gen, wanted: boolean): string;
 
-  /** @internal Emits code that writes the value of variable `value` (which it may set, to resolve a default). */
+  /** Emits code that writes the value of variable `value` (which it may set, to resolve a default). @internal */
   abstract emitWrite(g: Gen, value: string): void;
 
-  /** @internal Emits the body of this codec's function; when decoding, returns the expression of its value. */
+  /**
+   * Emits the body of this codec's function; when decoding, returns the
+   * expression of its value.
+   *
+   * @param g The generator of the function.
+   * @param selection What the function decodes (when encoding, "all").
+   * @returns The expression of the value, or "" if none is decoded.
+   * @internal
+   */
   emitBody(g: Gen, selection: Selection): string {
     if (g.mode !== "encode") return this.emitRead(g, selection !== "none");
     this.emitWrite(g, "v");
     return "";
   }
 
-  /** Decodes a value at `offset` (bytes after it are ignored). Truncated input throws a `DecodeError`. */
+  /**
+   * Decodes a value at `offset` (bytes after it are ignored). Truncated input
+   * throws a `DecodeError`.
+   *
+   * @param bytes The bytes to decode.
+   * @param offset Where the value starts in `bytes`.
+   * @returns The decoded value.
+   */
   decode(this: Standalone, bytes: Uint8Array, offset = 0): O {
     return decodeAt(this as never, cursor(bytes, offset));
   }
@@ -90,24 +108,41 @@ export abstract class Codec<O = unknown, I = O, Ctx = unknown> {
    * The bytes of `value`. Small results are views of a buffer shared with
    * other results (as Node.js does for small buffers), but never overwritten;
    * `slice()` them for a buffer of their own.
+   *
+   * @param value The value to encode.
+   * @returns A view of the bytes written.
    */
   encode(this: Standalone, value: I): Uint8Array<ArrayBuffer> {
     const encoder = (this as unknown as AnyCodec).encoder();
     // While encoding (e.g. in an encode function calling `encode`), use a writer of its own.
-    if (pool.busy)
+    if (pool.busy) {
       return pool.encode(encoder, new Writer(new Uint8Array(1024)), value);
+    }
     if (pool.bytes.length - pool.used < 4096) {
       pool.bytes = new Uint8Array(1 << 16);
       pool.used = 0;
     }
     const w = pool.writer;
     w.start(pool.bytes, pool.used);
-    const bytes = pool.encode(encoder, w, value);
-    if (w.bytes === pool.bytes) pool.used = (w.offset + 7) & ~7;
-    return bytes;
+    try {
+      const bytes = pool.encode(encoder, w, value);
+      if (w.bytes === pool.bytes) pool.used = (w.offset + 7) & ~7;
+      return bytes;
+    } finally {
+      // The writer does not keep a buffer it grew to.
+      if (w.bytes !== pool.bytes) w.start(pool.bytes, pool.used);
+    }
   }
 
-  /** Writes the bytes of `value` to `bytes` at `offset`; returns the offset after them. Bytes may have changed if it fails. */
+  /**
+   * Writes the bytes of `value` to `bytes` at `offset`; returns the offset
+   * after them. Bytes may have changed if it fails.
+   *
+   * @param value The value to encode.
+   * @param bytes The buffer to write to (it does not grow).
+   * @param offset Where the value starts in `bytes`.
+   * @returns The offset of the first byte after the value.
+   */
   encodeInto(
     this: Standalone,
     value: I,
@@ -120,22 +155,29 @@ export abstract class Codec<O = unknown, I = O, Ctx = unknown> {
     return w.offset;
   }
 
-  /** @internal The compiled decoder of the whole value. */
+  /**
+   * The compiled decoder of the whole value.
+   *
+   * @returns The decoder, compiled on first use.
+   * @internal
+   */
   decoder(): Compiled {
-    return (this.#decoder ??= compile(this as AnyCodec, "decode", "all"));
+    return (this.#decoder ??= compile(this, "decode", "all"));
   }
 
-  /** @internal The compiled encoder. */
+  /**
+   * The compiled encoder.
+   *
+   * @returns The encoder, compiled on first use.
+   * @internal
+   */
   encoder(): Encoder {
-    return (this.#encoder ??= compile(this as AnyCodec, "encode"));
+    return (this.#encoder ??= compile(this, "encode"));
   }
 }
 
 /** Any codec (inputs and contexts are contravariant, so their top type is `never`). */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- any output
-export type AnyCodec = Codec<any, never, never>;
-/** A codec that can only decode. */
-export type Decoder<O, Ctx = unknown> = Codec<O, never, Ctx>;
+export type AnyCodec = Codec<unknown, never, never>;
 /** A codec argument (not `AnyCodec`: TypeScript would infer its `never` context for codecs written in the argument). */
 export type AnyCase = { readonly [types]: object };
 /** The type `C` decodes to. */
@@ -155,13 +197,12 @@ export type Context<C> = C extends {
   ? X
   : unknown;
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type Obj = Record<string, any>;
+export type Obj = Record<string, unknown>;
 
 /**
  * A read position in `bytes` (`view` is a `DataView` of them); compiled
  * decoders read up to `end`. If the input is not `final`, more of it may
- * follow (in a stream).
+ * follow (in a stream): decoders reaching its end throw `MORE`.
  */
 export interface Cursor {
   bytes: Uint8Array;
@@ -171,16 +212,32 @@ export interface Cursor {
   final: boolean;
 }
 
-const views = new WeakMap<Uint8Array, DataView>();
+/**
+ * The bytes last viewed, and their view: values are often read from (or
+ * written to) the same bytes, and views are slow to create. They are kept
+ * until the current job ends (a `WeakMap` would cost more than it saves).
+ */
+let last: Uint8Array | undefined;
+let lastView: DataView | undefined;
 
-/** A `DataView` of `bytes` (kept, as values are often decoded from the same buffer). */
+function forget(): void {
+  last = undefined;
+  lastView = undefined;
+}
+
+/**
+ * A `DataView` of `bytes`.
+ *
+ * @param bytes The bytes to view.
+ * @returns The last view if it is of the same bytes, else a new one.
+ */
 export function viewOf(bytes: Uint8Array): DataView {
-  let view = views.get(bytes);
-  if (!view) {
-    view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-    views.set(bytes, view);
+  if (bytes !== last) {
+    if (!last) queueMicrotask(forget);
+    last = bytes;
+    lastView = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   }
-  return view;
+  return lastView!;
 }
 
 function checkOffset(offset: number, bytes: Uint8Array): void {
@@ -194,8 +251,14 @@ function cursor(bytes: Uint8Array, offset: number): Cursor {
   return { bytes, view: viewOf(bytes), offset, end: bytes.length, final: true };
 }
 
-/** Decodes a value of `codec` at the cursor, and moves the cursor past it. */
-export function decodeAt<O>(codec: Codec<O, never, unknown>, cur: Cursor): O {
+/**
+ * Decodes a value of `codec` at the cursor, and moves the cursor past it.
+ *
+ * @param codec The codec of the value.
+ * @param cur The cursor, at the start of the value.
+ * @returns The decoded value.
+ */
+export function decodeAt<O>(codec: Codec<O, never>, cur: Cursor): O {
   return codec.decoder()(cur) as O;
 }
 
@@ -207,18 +270,32 @@ export class Reader {
     this.#cur = cursor(bytes, offset);
   }
 
-  /** Where the next value starts. */
+  /**
+   * Where the next value starts.
+   *
+   * @returns The offset of the next value in the bytes.
+   */
   get offset(): number {
     return this.#cur.offset;
   }
 
-  /** Whether all bytes have been read. */
+  /**
+   * Whether all bytes have been read.
+   *
+   * @returns `true` once the offset has reached the end of the bytes.
+   */
   get done(): boolean {
     return this.#cur.offset >= this.#cur.end;
   }
 
-  /** Reads a value and moves past it (if it fails, the offset stays where it was). */
-  read<O>(codec: Codec<O, never, unknown>): O {
+  /**
+   * Reads a value and moves past it (if it fails, the offset stays where it
+   * was).
+   *
+   * @param codec The codec of the value.
+   * @returns The decoded value.
+   */
+  read<O>(codec: Codec<O, never>): O {
     const start = this.#cur.offset;
     try {
       return decodeAt(codec, this.#cur);
@@ -245,20 +322,31 @@ export class Writer {
     this.start(bytes, offset);
   }
 
-  /** Starts writing to `bytes` at `offset`. */
+  /**
+   * Starts writing to `bytes` at `offset`.
+   *
+   * @param bytes The buffer to write to.
+   * @param offset Where the first byte is written (the new `base`).
+   */
   start(bytes: Uint8Array, offset: number): void {
     if (bytes !== this.bytes) {
       this.bytes = bytes;
       this.view = viewOf(bytes);
     }
-    this.offset = this.base = offset;
+    this.offset = offset;
+    this.base = offset;
   }
 
-  /** Makes room for `n` more bytes. */
+  /**
+   * Makes room for `n` more bytes.
+   *
+   * @param n The number of bytes to be written at the current offset.
+   */
   room(n: number): void {
     if (this.offset + n <= this.bytes.length) return;
-    if (!Number.isSafeInteger(this.offset + n))
+    if (!Number.isSafeInteger(this.offset + n)) {
       throw new EncodeError("length exceeds the safe offset range");
+    }
     if (this.fixed) {
       throw new EncodeError(
         `the value does not fit (${this.offset + n - this.bytes.length} bytes more needed)`,
@@ -273,7 +361,11 @@ export class Writer {
     this.offset = written.length;
   }
 
-  /** The bytes written so far. */
+  /**
+   * The bytes written so far.
+   *
+   * @returns A view of the bytes from `base` to the current offset.
+   */
   written(): Uint8Array {
     return this.bytes.subarray(this.base, this.offset);
   }
@@ -286,9 +378,17 @@ const pool = {
   writer: new Writer(new Uint8Array(0)),
   busy: false,
 
-  /** Encodes `value` with `w`, whose buffers (the pool's, or grown ones) are `ArrayBuffer`s. */
+  /**
+   * Encodes `value` with `w`, whose buffers (the pool's, or grown ones) are
+   * `ArrayBuffer`s.
+   *
+   * @param encoder The compiled encoder of the codec.
+   * @param w The writer to encode with.
+   * @param value The value to encode.
+   * @returns A view of the bytes written.
+   */
   encode(encoder: Encoder, w: Writer, value: unknown): Uint8Array<ArrayBuffer> {
-    const busy = this.busy;
+    const { busy } = this;
     this.busy = true;
     try {
       encoder(w, value);
@@ -298,111 +398,3 @@ const pool = {
     }
   },
 };
-
-/** Where a value is: field names and array indexes. */
-export type Path = readonly (string | number)[];
-
-/** A path as written in code, e.g. `items[1].name` or `["a b"]`. */
-function where(path: Path): string {
-  return path
-    .map((p, i) =>
-      typeof p === "number"
-        ? `[${p}]`
-        : /^[A-Za-z_$][\w$]*$/.test(p)
-          ? i
-            ? `.${p}`
-            : p
-          : `[${JSON.stringify(p)}]`,
-    )
-    .join("");
-}
-
-/** Why decoding failed, where (`path` of field names and array indexes), and at which byte. */
-export class DecodeError extends Error {
-  override name = "DecodeError";
-  /** What failed: truncated input, an invalid value, a tag without a case, or an error thrown by a function. */
-  readonly code: "end-of-input" | "invalid" | "no-match" | "error";
-  /** The failure, without its location. */
-  readonly detail: string;
-  /** The offset of the value that failed. */
-  readonly offset: number;
-  /** The field names and array indexes of the value that failed. */
-  readonly path: Path;
-
-  constructor(
-    code: DecodeError["code"],
-    detail: string,
-    offset: number,
-    path: Path = [],
-    cause?: unknown,
-  ) {
-    super("", { cause });
-    this.code = code;
-    this.detail = detail;
-    this.offset = offset;
-    this.path = [...path];
-    this.message = located(this);
-  }
-}
-
-/** Why encoding failed, and where (`path` of field names and array indexes). */
-export class EncodeError extends Error {
-  override name = "EncodeError";
-  /** The failure, without its location. */
-  readonly detail: string;
-  /** The field names and array indexes of the value that failed. */
-  readonly path: Path = [];
-
-  constructor(detail: string, cause?: unknown) {
-    super(detail, { cause });
-    this.detail = detail;
-  }
-}
-
-function located(e: DecodeError | EncodeError): string {
-  const at = e.path.length ? ` in \`${where(e.path)}\`` : "";
-  return e instanceof DecodeError
-    ? `${e.detail}${at} at offset ${e.offset}`
-    : `${e.detail}${at}`;
-}
-
-type Mutable<T> = { -readonly [K in keyof T]: T[K] };
-
-/**
- * Locates an error at `path` (in front of its own) and moves it by `offset`;
- * other errors become `DecodeError`s at `offset`.
- */
-export function within(
-  e: unknown,
-  offset: number,
-  path: Path,
-  shift = 0,
-): DecodeError {
-  if (!(e instanceof DecodeError)) {
-    return new DecodeError(
-      "error",
-      String((e as Error)?.message ?? e),
-      offset,
-      path,
-      e,
-    );
-  }
-  return new DecodeError(
-    e.code,
-    e.detail,
-    e.offset + shift,
-    [...path, ...e.path],
-    e.cause,
-  );
-}
-
-/** Like `within`, for encoding. */
-export function encodingWithin(e: unknown, path: Path): EncodeError {
-  const err = new EncodeError(
-    e instanceof EncodeError ? e.detail : String((e as Error)?.message ?? e),
-    e instanceof EncodeError ? e.cause : e,
-  ) as Mutable<EncodeError>;
-  err.path = [...path, ...(e instanceof EncodeError ? e.path : [])];
-  err.message = located(err);
-  return err;
-}

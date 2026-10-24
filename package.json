@@ -1,9 +1,29 @@
 {
   "name": "binopsy",
-  "author": "Felix Boehm <me@feedic.com>",
   "version": "0.0.0",
   "description": "Typed binary codecs: compiled decoders and encoders, partial decoding and streams",
+  "keywords": [
+    "binary",
+    "bit",
+    "buffer",
+    "encode",
+    "pack",
+    "serializer",
+    "struct"
+  ],
+  "license": "MIT",
+  "author": "Felix Boehm <me@feedic.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fb55/binopsy.git"
+  },
+  "files": [
+    "lib",
+    "src",
+    "CHANGELOG.md"
+  ],
   "type": "module",
+  "sideEffects": false,
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
   "exports": {
@@ -12,44 +32,24 @@
       "default": "./lib/index.js"
     }
   },
-  "files": [
-    "lib",
-    "src",
-    "CHANGELOG.md"
-  ],
-  "devDependencies": {
-    "@eslint/js": "^10.0.1",
-    "@types/mocha": "^10.0.10",
-    "@types/node": "^26.6.5",
-    "@typescript/native": "npm:typescript@~7.0.2",
-    "eslint": "^10.13.0",
-    "eslint-config-prettier": "^10.1.8",
-    "globals": "^17.13.0",
-    "mocha": "^12.0.3",
-    "prettier": "^3.9.10",
-    "typescript": "npm:@typescript/typescript6@^6.0.2",
-    "typescript-eslint": "^8.72.0"
-  },
   "scripts": {
+    "prebuild": "node -e \"require('node:fs').rmSync('lib', { recursive: true, force: true })\"",
     "build": "tsc -p tsconfig.build.json",
     "prepack": "npm run build",
-    "test": "mocha",
-    "lint": "eslint . && tsc && npm run build && tsc -p test/package && tsc6 -p test/package",
-    "format": "prettier --write ."
+    "test": "vitest run",
+    "coverage": "vitest run --coverage",
+    "lint": "oxlint && oxfmt --check && tsc && npm run build && tsc -p test/package && npm run lint:generated",
+    "lint:generated": "node test/lint-generated.ts",
+    "format": "oxfmt"
   },
-  "keywords": [
-    "binary",
-    "serializer",
-    "encode",
-    "pack",
-    "struct",
-    "buffer",
-    "bit"
-  ],
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "http://github.com/fb55/binopsy.git"
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "@vitest/coverage-v8": "^5.0.5",
+    "oxfmt": "^0.74.0",
+    "oxlint": "^1.89.0",
+    "oxlint-tsgolint": "^7.0.2005",
+    "typescript": "~7.0.2",
+    "vitest": "^5.0.5"
   },
   "engines": {
     "node": ">=22.18"

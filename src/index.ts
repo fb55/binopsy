@@ -1,15 +1,12 @@
 export {
-  DecodeError,
-  EncodeError,
   Reader,
   type AnyCodec,
   type Codec,
   type Context,
-  type Decoder,
   type Input,
   type Output,
-  type Path,
 } from "./codec.ts";
+export { DecodeError, EncodeError, type Path } from "./errors.ts";
 export {
   f32be,
   f32le,

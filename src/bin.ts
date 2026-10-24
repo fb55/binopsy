@@ -4,7 +4,6 @@
  */
 import {
   Codec,
-  ALL_FIELDS,
   type AnyCase,
   type AnyCodec,
   type Defaulted,
@@ -12,9 +11,8 @@ import {
   type Input,
   type Obj,
   type Output,
-  type Reads,
 } from "./codec.ts";
-import type { Gen, Selection } from "./compile.ts";
+import { ALL_FIELDS, type Gen, type Reads, type Selection } from "./compile.ts";
 import {
   Match,
   type Value,
@@ -30,10 +28,10 @@ import { primitives, type Numbers } from "./primitives.ts";
  * encoded), built as intersections (which stay flat in long parsers) and
  * shown as object types. A parser without fields has `{}`.
  */
-/* eslint-disable @typescript-eslint/no-empty-object-type */
+/* oxlint-disable typescript/no-empty-object-type */
 
 /** Flattens intersections into object types (for each variant of a union). */
-type Pretty<T> = T extends unknown ? { [K in keyof T]: T[K] } : never;
+type Pretty<T> = { [K in keyof T]: T[K] };
 /** The field names of any variant of `T`. */
 type Keys<T> = T extends unknown ? keyof T & string : never;
 /** `T` with field `K` of type `V`. */
@@ -43,21 +41,12 @@ type Add<T, K extends string, V> = T extends unknown
     : never
   : never;
 /** `I` with field `K` of type `V`, which may be omitted if the codec supplies it (`D`). */
-type AddInput<I, K extends string, V, D = false> = I extends unknown
-  ? I & ([D] extends [true] ? { [P in K]?: V } : { [P in K]: V })
-  : never;
-/** Each variant of `A` combined with each of `B`. */
-type Cross<A, B> = A extends unknown
-  ? B extends unknown
-    ? A & B
-    : never
-  : never;
+type AddInput<I, K extends string, V, D = false> = I &
+  ([D] extends [true] ? { [P in K]?: V } : { [P in K]: V });
 /** The values functions see when encoding: omitted fields (which have optional keys) are supplied. */
-type Resolved<I> = I extends unknown
-  ? {
-      [K in keyof I]-?: {} extends Pick<I, K> ? Exclude<I[K], undefined> : I[K];
-    }
-  : never;
+type Resolved<I> = {
+  [K in keyof I]-?: {} extends Pick<I, K> ? Exclude<I[K], undefined> : I[K];
+};
 /** The fields functions see: decoded, or (if they differ) encoded. */
 type Available<T, I> = [Resolved<I>] extends [T] ? T : T | Resolved<I>;
 type InScope<Fields, Outer> = Fields extends unknown
@@ -176,19 +165,20 @@ type Apply<
   ? T extends unknown
     ? [Tag] extends [never]
       ? Pretty<T & Part<CaseCodec<Cs> | D, K, S>>
-      : | (Cs extends readonly [infer V, infer C]
-            ? Branch<T, Tag, V, C, K, S>
-            : never)
-        | ([D] extends [never]
-            ? never
-            : Branch<
-                T,
-                Tag,
-                Exclude<TagIn<T, Outer, Tag>, CaseValue<Cs>>,
-                D,
-                K,
-                S
-              >)
+      :
+          | (Cs extends readonly [infer V, infer C]
+              ? Branch<T, Tag, V, C, K, S>
+              : never)
+          | ([D] extends [never]
+              ? never
+              : Branch<
+                  T,
+                  Tag,
+                  Exclude<TagIn<T, Outer, Tag>, CaseValue<Cs>>,
+                  D,
+                  K,
+                  S
+                >)
     : never
   : never;
 
@@ -201,7 +191,7 @@ type NumberFields<T, I, Ctx> = {
     Ctx
   >;
 };
-// prettier-ignore
+// oxfmt-ignore
 type BitWidth = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 | 32 | 33 | 34 | 35 | 36 | 37 | 38 | 39 | 40 | 41 | 42 | 43 | 44 | 45 | 46 | 47 | 48 | 49 | 50 | 51 | 52 | 53;
 
 /** Names surely picked (not unions of names). */
@@ -315,7 +305,7 @@ export interface Bin<T, I = T, Ctx = unknown>
             })
     >,
   ): [MatchOf<X>] extends [never]
-    ? Bin<Cross<T, Output<B>>, Cross<I, Input<B>>, Ctx>
+    ? Bin<T & Output<B>, I & Input<B>, Ctx>
     : Bin<
         Apply<T, MatchOf<X>, null, "out", Ctx>,
         Apply<I, MatchOf<X>, null, "in", Ctx>,
@@ -346,13 +336,12 @@ export interface Bin<T, I = T, Ctx = unknown>
  * are contravariant, so their top type is `never`. (Groups of fields keep
  * the parser's types with type parameters: `<T, I>(b: Bin<T, I>) => …`.)
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- any output
-export type AnyBin = Struct<any, never, never>;
+export type AnyBin = Struct<unknown, never, never>;
 
 /** Options of parsers. */
 export interface BinOptions {
   /** The order bit fields take the bits of a byte in: most (default) or least significant first. */
-  bitOrder?: "msb" | "lsb";
+  bitOrder?: "msb" | "lsb" | undefined;
 }
 
 /** An empty parser. */
@@ -363,11 +352,13 @@ export function bin(options?: BinOptions): Bin<{}, {}>;
  */
 export function bin<Ctx>(options?: BinOptions): Bin<{}, {}, Ctx>;
 export function bin(options: BinOptions = {}): unknown {
-  for (const key of Object.keys(options))
+  for (const key of Object.keys(options)) {
     if (key !== "bitOrder") throw new TypeError(`unknown option \`${key}\``);
+  }
   const order = options.bitOrder ?? "msb";
-  if (order !== "msb" && order !== "lsb")
+  if (order !== "msb" && order !== "lsb") {
     throw new TypeError(`invalid bit order ${String(order)}`);
+  }
   return new Parser([], order);
 }
 
@@ -389,26 +380,44 @@ type Entry =
   /** A parser computing fields or decoding some, whose fields are added. */
   | { readonly kind: "group"; readonly struct: Parser };
 
-/** The names of fields an entry adds (of every case). */
+/**
+ * The names of fields an entry adds (of every case).
+ *
+ * @param entry The entry of a parser.
+ * @returns The names, each once.
+ */
 function names(entry: Entry): string[] {
   switch (entry.kind) {
-    case "match":
+    case "match": {
       return [...new Set(cases(entry.match).flatMap((s) => s.names()))];
-    case "group":
+    }
+    case "group": {
       return entry.struct.names();
-    default:
+    }
+    default: {
       return [entry.name];
+    }
   }
 }
 
-/** The parsers of the cases of a match. */
+/**
+ * The parsers of the cases of a match.
+ *
+ * @param match A match of parsers.
+ * @returns The parsers of the cases in order, then the default (if any).
+ */
 function cases(match: Match): Parser[] {
   const all = match.cases.map(([, codec]) => codec);
   if (match.default) all.push(match.default);
   return all as unknown as Parser[];
 }
 
-/** The size of entries, and whether reading them checks something. */
+/**
+ * The size of entries, and whether reading them checks something.
+ *
+ * @param entries The entries of a parser.
+ * @returns The size in bytes (`NaN` if it varies), and whether any checks.
+ */
 function measure(entries: readonly Entry[]): [size: number, checks: boolean] {
   let size = 0;
   let bits = 0;
@@ -432,13 +441,19 @@ function measure(entries: readonly Entry[]): [size: number, checks: boolean] {
   return [size + Math.ceil(bits / 8), checks];
 }
 
-/** Named fields read outside this plan, plus the callback-prefix marker. */
+/**
+ * Named fields read outside this plan, plus the callback-prefix marker.
+ *
+ * @param entries The entries of a parser.
+ * @returns The fields before the entries they read (with `ALL_FIELDS`, if any).
+ */
 function unresolved(entries: readonly Entry[]): Reads {
   const own = new Set<string>();
   const reads = new Set<Reads[number]>();
   for (const entry of entries) {
-    for (const name of readsOf(entry))
+    for (const name of readsOf(entry)) {
       if (name === ALL_FIELDS || !own.has(name)) reads.add(name);
+    }
     for (const name of names(entry)) own.add(name);
   }
   return [...reads];
@@ -467,21 +482,27 @@ class Parser extends Codec<Obj> {
     this.selection = selection;
   }
 
-  /** The names of the fields it outputs. */
+  /**
+   * The names of the fields it outputs.
+   *
+   * @returns The names in order (if it decodes some fields, those).
+   */
   names(): string[] {
     const all = this.entries.flatMap(names);
     return this.selection ? all.filter((n) => this.selection!.has(n)) : all;
   }
 
   field(name: string, codec: AnyCodec): Parser {
-    if (!(codec instanceof Codec))
+    if (!(codec instanceof Codec)) {
       throw new TypeError(`the codec of \`${name}\` is not a codec`);
+    }
     return this.add([{ kind: "field", name, codec }]);
   }
 
   bits(name: string, width: number): Parser {
-    if (!(Number.isInteger(width) && width >= 1 && width <= 53))
+    if (!(Number.isInteger(width) && width >= 1 && width <= 53)) {
       throw new RangeError(`\`${name}\` has ${width} bits, not 1 to 53`);
+    }
     return this.add([{ kind: "bits", name, width, order: this.order }]);
   }
 
@@ -516,8 +537,9 @@ class Parser extends Codec<Obj> {
     const own = new Set(this.names());
     for (const [key, fn] of computes) {
       if (!own.has(key)) throw new Error(`no field \`${key}\``);
-      if (typeof fn !== "function")
+      if (typeof fn !== "function") {
         throw new TypeError(`the computation of \`${key}\` is not a function`);
+      }
     }
     return new Parser(this.entries, this.order, computes);
   }
@@ -530,18 +552,29 @@ class Parser extends Codec<Obj> {
     return new Parser(this.entries, this.order, this.computes, new Set(picked));
   }
 
-  /** The parser with entries added, which must add new fields. */
+  /**
+   * The parser with entries added, which must add new fields.
+   *
+   * @param entries The entries to add.
+   * @returns A new parser.
+   */
   private add(entries: readonly Entry[]): Parser {
-    if (this.computes || this.selection)
+    if (this.computes || this.selection) {
       throw new Error(
         "no fields can be added to a parser computing fields, or decoding some",
       );
+    }
     const taken = new Set(this.names());
     for (const entry of entries) {
       const added = names(entry);
       for (const name of added) {
-        if (typeof name !== "string" || taken.has(name) || name === "__proto__")
+        if (
+          typeof name !== "string" ||
+          taken.has(name) ||
+          name === "__proto__"
+        ) {
           throw new Error(`invalid or duplicate field \`${name}\``);
+        }
       }
       // Fields of different cases may have the same names.
       for (const name of added) taken.add(name);
@@ -557,35 +590,43 @@ class Parser extends Codec<Obj> {
     return new Parser([...this.entries, ...entries], this.order);
   }
 
+  // Parsers of a fixed size are inlined in the code of others (their code is bounded by their size).
+
   emitRead(g: Gen, wanted: boolean): string {
-    if (!wanted && !this.checks && Number.isFinite(this.size)) {
-      g.need(this.size);
-      g.skip(this.size);
-      return "";
+    if (!Number.isFinite(this.size)) {
+      return g.call(this, wanted);
     }
-    return g.call(this as unknown as AnyCodec, wanted);
+    const object = g.inline(() => this.emitBody(g, wanted ? "all" : "none"));
+    return object && g.let(object);
   }
 
   emitWrite(g: Gen, value: string): void {
-    g.call(this as unknown as AnyCodec, value);
+    if (Number.isFinite(this.size)) g.inline(() => this.encodeObject(g, value));
+    else g.call(this, value);
+  }
+
+  /**
+   * Emits code encoding the object in variable `value`.
+   *
+   * @param g The generator of the function.
+   * @param value The variable holding the value (checked to be an object).
+   */
+  private encodeObject(g: Gen, value: string): void {
+    g.check(
+      `typeof ${value} !== "object" || ${value} === null`,
+      "invalid",
+      `"expected an object, got " + String(${value})`,
+    );
+    this.encodeFields(g, value);
   }
 
   override emitBody(g: Gen, selection: Selection): string {
     if (g.mode === "encode") {
-      g.check(
-        'typeof v !== "object" || v === null',
-        "invalid",
-        '"expected an object, got " + String(v)',
-      );
-      this.encodeFields(g, "v");
+      this.encodeObject(g, "v");
       return "";
     }
     const wanted =
-      selection === "all"
-        ? new Set(this.names())
-        : selection === "none"
-          ? new Set<string>()
-          : selection;
+      selection === "all" ? new Set(this.names()) : new Set<string>();
     const parts = this.decodeFields(g, wanted, new Set());
     return selection === "none" ? "" : objectOf(parts);
   }
@@ -593,6 +634,11 @@ class Parser extends Codec<Obj> {
   /**
    * Emits code decoding the fields; returns the parts of the object (with
    * the `wanted` fields). Fields of `later` ones are decoded too.
+   *
+   * @param g The generator of the function.
+   * @param wanted The names of the fields in the object.
+   * @param later The names of the fields that entries after these read.
+   * @returns The parts of the object, in order.
    */
   decodeFields(
     g: Gen,
@@ -604,22 +650,21 @@ class Parser extends Codec<Obj> {
     const output = this.selection
       ? new Set([...wanted].filter((n) => this.selection!.has(n)))
       : wanted;
-    // The fields read by those after each entry (all of them before a function).
-    const needed: ReadonlySet<string>[] = [];
-    let after = new Set(later);
+    // The fields read by the entries after each (before a function getting
+    // every field, those of the entry).
+    const after: ReadonlySet<string>[] = [];
+    const read = new Set(later);
     let all = false;
     for (let i = entries.length - 1; i >= 0; i--) {
-      needed[i] = all ? ALL : new Set(after);
-      const reads = readsOf(entries[i]);
-      after = new Set(after);
-      for (const name of reads) {
+      after[i] = all ? new Set(names(entries[i])) : new Set(read);
+      for (const name of readsOf(entries[i])) {
         if (name === ALL_FIELDS) all = true;
-        else after.add(name);
+        else read.add(name);
       }
     }
     const parts: Piece[] = [];
-    const want = (name: string, i: number) =>
-      own.has(name) || needed[i] === ALL || needed[i].has(name);
+    const want = (name: string, i: number): boolean =>
+      own.has(name) || after[i].has(name);
     for (let i = 0; i < entries.length; i++) {
       const entry = entries[i];
       if (entry.kind === "bits") {
@@ -634,24 +679,29 @@ class Parser extends Codec<Obj> {
         const v = codec.emitRead(g, want(name, i));
         if (v) g.fields.set(name, v);
         if (output.has(name)) parts.push({ name, v });
+      } else if (entry.kind === "group") {
+        parts.push(...entry.struct.decodeGroup(g, output, after[i]));
       } else {
-        // Before a function, every field.
-        const after = needed[i] === ALL ? new Set(names(entry)) : needed[i];
-        if (entry.kind === "group")
-          parts.push(...entry.struct.decodeGroup(g, output, after));
-        else
-          parts.push(
-            this.emitCases(g, entry.match, (struct) =>
-              struct.decodeFields(g, output, after),
-            ),
-          );
+        parts.push(
+          emitCases(g, entry.match, (struct) =>
+            struct.decodeFields(g, output, after[i]),
+          ),
+        );
       }
     }
     g.field = undefined;
     return parts;
   }
 
-  /** Emits code decoding a parser added to another (its own fields are only its own). */
+  /**
+   * Emits code decoding a parser added to another (its own fields are only
+   * its own).
+   *
+   * @param g The generator of the function.
+   * @param wanted The names of the fields in the object.
+   * @param later The names of the fields that entries after the group read.
+   * @returns The parts of the object, in order.
+   */
   private decodeGroup(
     g: Gen,
     wanted: ReadonlySet<string>,
@@ -671,45 +721,17 @@ class Parser extends Codec<Obj> {
     return parts;
   }
 
-  /** Emits a match's field scopes, sharing the locals its cases define. */
-  private emitCases(
-    g: Gen,
-    match: Match,
-    emit: (struct: Parser) => Piece[] | void,
-  ): Piece {
-    g.field = undefined;
-    const structs = cases(match);
-    const shared = new Map<string, string>();
-    for (const struct of structs) {
-      for (const name of struct.names()) {
-        if (!shared.has(name)) shared.set(name, g.hoist());
-      }
-    }
-    const branch = g.mode === "encode" ? "" : g.hoist();
-    const outer = g.fields;
-    const parts: Piece[][] = [];
-    match.emitSwitch(g, (_codec, i) => {
-      g.fields = new Map(outer);
-      const own = emit(structs[i]);
-      for (const [name, v] of g.fields) {
-        if (shared.has(name) && outer.get(name) !== v)
-          g.line(`${shared.get(name)} = ${v};`);
-      }
-      if (own) {
-        g.line(`${branch} = ${i};`);
-        parts[i] = own.map((part) =>
-          "branch" in part
-            ? part
-            : { name: part.name, v: shared.get(part.name)! },
-        );
-      }
-    });
-    g.fields = new Map(outer);
-    for (const [name, v] of shared) g.fields.set(name, v);
-    return { branch, cases: parts };
-  }
-
-  /** Emits code decoding the bit fields from entry `i` on; returns the index of the last. */
+  /**
+   * Emits code decoding the bit fields from entry `i` on; returns the index of
+   * the last.
+   *
+   * @param g The generator of the function.
+   * @param i The index of the first bit field.
+   * @param want Whether a field (by name and entry index) is decoded.
+   * @param parts The parts of the object, to which the fields are added.
+   * @param output The names of the fields in the object.
+   * @returns The index of the last entry of the run.
+   */
   private decodeBits(
     g: Gen,
     i: number,
@@ -722,7 +744,7 @@ class Parser extends Codec<Obj> {
     g.field = undefined;
     g.need(bytes);
     let offset = 0;
-    fields.forEach((field, j) => {
+    for (const [j, field] of fields.entries()) {
       if (want(field.name, i + j)) {
         g.field = field.name;
         const v = g.let(extract(g.at(), field.order, offset, field.width));
@@ -730,23 +752,25 @@ class Parser extends Codec<Obj> {
         if (output.has(field.name)) parts.push({ name: field.name, v });
       }
       offset += field.width;
-    });
+    }
     g.skip(bytes);
     return i + fields.length - 1;
   }
 
-  /** Emits code encoding the fields of the object in variable `object`. */
+  /**
+   * Emits code encoding the fields of the object in variable `object`.
+   *
+   * @param g The generator of the function.
+   * @param object The variable holding the object.
+   * @param supplied The variables of fields computed around it, by name.
+   */
   encodeFields(
     g: Gen,
     object: string,
     supplied: ReadonlyMap<string, string> = new Map(),
   ): void {
     if (this.selection) {
-      g.check(
-        "true",
-        "invalid",
-        '"a parser decoding some fields cannot encode"',
-      );
+      g.fail("invalid", '"a parser decoding some fields cannot encode"');
       return;
     }
     const computed = new Map(supplied);
@@ -787,23 +811,34 @@ class Parser extends Codec<Obj> {
           computed.get(name) ?? `${object}[${JSON.stringify(name)}]`,
           "let",
         );
-        const preset = codec.preset;
-        if (preset)
+        const { preset } = codec;
+        if (preset) {
           g.line(`if (${v} === undefined) ${v} = ${g.k(preset.value)};`);
+        }
         codec.emitWrite(g, v);
         g.fields.set(name, v);
       } else if (entry.kind === "group") {
         entry.struct.encodeFields(g, object, computed);
       } else {
-        this.emitCases(g, entry.match, (struct) =>
-          struct.encodeFields(g, object, computed),
-        );
+        emitCases(g, entry.match, (struct) => {
+          struct.encodeFields(g, object, computed);
+          return [];
+        });
       }
     }
     g.field = undefined;
   }
 
-  /** Emits code encoding the bit fields from entry `i` on; returns the index of the last. */
+  /**
+   * Emits code encoding the bit fields from entry `i` on; returns the index of
+   * the last.
+   *
+   * @param g The generator of the function.
+   * @param i The index of the first bit field.
+   * @param object The variable holding the object.
+   * @param computed The variables of computed fields, by name.
+   * @returns The index of the last entry of the run.
+   */
   private encodeBits(
     g: Gen,
     i: number,
@@ -856,15 +891,66 @@ class Parser extends Codec<Obj> {
     }
     g.field = undefined;
     g.need(bytes.length);
-    bytes.forEach((parts, j) =>
-      g.line(`buf[${g.at(j)}] = ${parts.join(" | ")};`),
-    );
+    for (const [j, parts] of bytes.entries()) {
+      g.line(`buf[${g.at(j)}] = ${parts.join(" | ")};`);
+    }
     g.skip(bytes.length);
     return i + fields.length - 1;
   }
 }
 
-/** The fields an entry reads. */
+/**
+ * Emits a match's field scopes, sharing the locals its cases define.
+ *
+ * @param g The generator of the function.
+ * @param match A match of parsers.
+ * @param emit Emits the code of a case's parser; returns its parts.
+ * @returns The piece of the cases (whose parts are only kept when decoding).
+ */
+function emitCases(
+  g: Gen,
+  match: Match,
+  emit: (struct: Parser) => Piece[],
+): Piece {
+  g.field = undefined;
+  const structs = cases(match);
+  const shared = new Map<string, string>();
+  for (const struct of structs) {
+    for (const name of struct.names()) {
+      if (!shared.has(name)) shared.set(name, g.hoist());
+    }
+  }
+  const branch = g.mode === "encode" ? "" : g.hoist();
+  const outer = g.fields;
+  const parts: Piece[][] = [];
+  match.emitSwitch(g, (_codec, i) => {
+    g.fields = new Map(outer);
+    const own = emit(structs[i]);
+    for (const [name, v] of g.fields) {
+      if (shared.has(name) && outer.get(name) !== v) {
+        g.line(`${shared.get(name)} = ${v};`);
+      }
+    }
+    if (branch) {
+      g.line(`${branch} = ${i};`);
+      parts[i] = own.map((part) =>
+        "branch" in part
+          ? part
+          : { name: part.name, v: shared.get(part.name)! },
+      );
+    }
+  });
+  g.fields = new Map(outer);
+  for (const [name, v] of shared) g.fields.set(name, v);
+  return { branch, cases: parts };
+}
+
+/**
+ * The fields an entry reads.
+ *
+ * @param entry The entry of a parser.
+ * @returns The fields its codec reads (none for bit fields).
+ */
 function readsOf(entry: Entry): Reads {
   if (entry.kind === "bits") return [];
   return (
@@ -876,15 +962,25 @@ function readsOf(entry: Entry): Reads {
   ).reads;
 }
 
-/** Every field, before a function (which gets all of them). */
-const ALL: ReadonlySet<string> = new Set();
-
 /** A piece of a decoded object: a field, or the fields of the case of a match (`branch` holds its index). */
-type Piece =
-  | { readonly name: string; readonly v: string }
-  | { readonly branch: string; readonly cases: readonly (readonly Piece[])[] };
+type Piece = Field | Cases;
+interface Field {
+  readonly name: string;
+  readonly v: string;
+}
+interface Cases {
+  readonly branch: string;
+  readonly cases: readonly (readonly Piece[])[];
+}
 
-/** The expression of an object with `parts` (objects of each combination of cases, if they are few). */
+/**
+ * The expression of an object with `parts`: one object for each combination
+ * of cases if they are few (objects of the same fields are faster), or else
+ * one adding the fields of each case.
+ *
+ * @param parts The fields, and the cases of matches, in order.
+ * @returns An object literal, or a conditional expression of several.
+ */
 function objectOf(parts: readonly Piece[]): string {
   const combinations = parts.reduce(
     (n, part) => ("branch" in part ? n * part.cases.length : n),
@@ -893,59 +989,107 @@ function objectOf(parts: readonly Piece[]): string {
   if (combinations > 16) {
     const entries = parts.map((part) =>
       "branch" in part
-        ? `...(${part.cases
-            .map((c, i) => `${part.branch} === ${i} ? ${objectOf(c)} : `)
-            .join("")}{})`
-        : `${JSON.stringify(part.name)}: ${part.v}`,
+        ? `...(${choice(part, (j) => objectOf(part.cases[j]))})`
+        : fieldOf(part),
     );
     return `{ ${entries.join(", ")} }`;
   }
   const i = parts.findIndex((part) => "branch" in part);
-  if (i < 0) {
-    return `{ ${parts.map((p) => `${JSON.stringify((p as { name: string }).name)}: ${(p as { v: string }).v}`).join(", ")} }`;
+  if (i === -1) {
+    return `{ ${(parts as Field[]).map((part) => fieldOf(part)).join(", ")} }`;
   }
-  const { branch, cases } = parts[i] as Extract<Piece, { branch: string }>;
-  const objects = cases.map((c) =>
-    objectOf([...parts.slice(0, i), ...c, ...parts.slice(i + 1)]),
+  const match = parts[i] as Cases;
+  return choice(match, (j) =>
+    objectOf([...parts.slice(0, i), ...match.cases[j], ...parts.slice(i + 1)]),
   );
-  return objects
-    .map((o, j) =>
-      j < objects.length - 1 ? `${branch} === ${j} ? ${o} : ` : o,
+}
+
+/**
+ * The property of a field in an object literal.
+ *
+ * @param field A decoded field.
+ * @param field.name The name of the field.
+ * @param field.v The variable holding its value.
+ * @returns The code of the property, e.g. `"a": v0`.
+ */
+function fieldOf({ name, v }: Field): string {
+  return `${JSON.stringify(name)}: ${v}`;
+}
+
+/**
+ * An expression that is `of(j)` if the match is in its case `j`.
+ *
+ * @param match The cases, and the variable of the index of the one decoded.
+ * @param of The expression for a case, given its index.
+ * @returns A chain of conditional expressions (or `of(0)`, for one case).
+ */
+function choice(match: Cases, of: (j: number) => string): string {
+  const last = match.cases.length - 1;
+  return match.cases
+    .map((_, j) =>
+      j < last ? `${match.branch} === ${j} ? ${of(j)} : ` : of(j),
     )
     .join("");
 }
 
-/** The fields of `value` named `names` (those it has), for computations. */
-function project(value: Obj, names: readonly string[], supplied: Obj): Obj {
-  const projected: Obj = {};
-  for (const name of names) {
-    if (Object.prototype.hasOwnProperty.call(supplied, name))
+/**
+ * The fields of `value` named `keys` (those it has), for computations.
+ *
+ * @param value The object being encoded.
+ * @param keys The names of the fields to take.
+ * @param supplied Values of fields computed around it, which take precedence.
+ * @returns A new object of the fields.
+ */
+function project(
+  value: Readonly<Record<string, unknown>>,
+  keys: readonly string[],
+  supplied: Readonly<Record<string, unknown>>,
+): Record<string, unknown> {
+  const projected: Record<string, unknown> = {};
+  for (const name of keys) {
+    if (Object.hasOwn(supplied, name)) {
       projected[name] = supplied[name];
-    else if (Object.prototype.hasOwnProperty.call(value, name))
+    } else if (Object.hasOwn(value, name)) {
       projected[name] = value[name];
+    }
   }
   return projected;
 }
 
-/** The bit fields from entry `i` on that share bytes. */
+/**
+ * The bit fields from entry `i` on that share bytes.
+ *
+ * @param entries The entries of a parser.
+ * @param i The index of the first bit field.
+ * @returns The consecutive bit fields of the first one's bit order.
+ */
 function bitRun(
   entries: readonly Entry[],
   i: number,
 ): Extract<Entry, { kind: "bits" }>[] {
-  const run: Extract<Entry, { kind: "bits" }>[] = [];
+  const fields: Extract<Entry, { kind: "bits" }>[] = [];
   for (let j = i; j < entries.length; j++) {
     const entry = entries[j];
     if (
       entry.kind !== "bits" ||
       entry.order !== (entries[i] as { order: Order }).order
-    )
+    ) {
       break;
-    run.push(entry);
+    }
+    fields.push(entry);
   }
-  return run;
+  return fields;
 }
 
-/** The expression of the `width` bits `offset` bits into the bytes at `at`. */
+/**
+ * The expression of the `width` bits `offset` bits into the bytes at `at`.
+ *
+ * @param at An expression of the offset of the bytes.
+ * @param order The order of the bits in a byte.
+ * @param offset The number of bits before the field.
+ * @param width The number of bits of the field.
+ * @returns An expression of the unsigned integer the bits hold.
+ */
 function extract(
   at: string,
   order: Order,
@@ -960,7 +1104,7 @@ function extract(
   }
   const first = offset >> 3;
   const span = ((offset + width - 1) >> 3) - first + 1;
-  const byte = (k: number) => `buf[${at} + ${first + k}]`;
+  const byte = (k: number): string => `buf[${at} + ${first + k}]`;
   // The bits from `first` on, big (msb) or little (lsb) endian.
   const shift = order === "msb" ? 8 * span - (offset % 8) - width : offset % 8;
   if (span <= 4) {
@@ -980,7 +1124,14 @@ function extract(
   return `Math.floor((${value}) / ${2 ** shift}) % ${2 ** width}`;
 }
 
-/** The bytes the fixed-size fields from `i` on take (with where each ends, for errors). */
+/**
+ * The bytes the fixed-size fields from `i` on take (with where each ends, for
+ * errors).
+ *
+ * @param entries The entries of a parser.
+ * @param i The index of the first field.
+ * @returns The number of bytes, and the fields with the offsets they end at.
+ */
 function run(
   entries: readonly Entry[],
   i: number,

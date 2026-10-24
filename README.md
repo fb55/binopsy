@@ -18,7 +18,7 @@ const Player = bin()
   .u8("count")
   .field("ratings", array(u16le, "count"));
 
-const player = Player.decode(bytes);
+const player = Player.decode(input);
 // { id: number; name: string; count: number; ratings: number[] }
 
 Player.encode(player); // The bytes again
@@ -38,7 +38,7 @@ Types are inferred: no annotations are needed, and mistakes (a misspelled field,
 - `.computed(name, f)` computes a field when encoding (see [encoding](#encoding)); it ends the parser.
 - `.pick(...names)` is a decoder of only some fields (see [decoding](#decoding)).
 
-Every parser is itself a codec, so parsers nest: `.field("club", Ref)`. Field names are unique: adding one twice throws (only the cases of one match may have fields of the same names). Duplicate field names are checked at definition time, not by TypeScript: a schema can type-check and still throw while it is built. This includes repeated names in separate matches on the same tag, even when the branches are mutually exclusive.
+Every parser is itself a codec, so parsers nest: `.field("club", Ref)`. Field names are unique: adding a name twice throws when the parser is defined (TypeScript does not check it). Only the cases of one match may have fields of the same names; two matches may not, even on the same tag.
 
 ### Codecs
 
@@ -69,9 +69,9 @@ A `length` is
 - the name of an earlier number field (`bytes("size")`),
 - or a function of the earlier fields (`bytes((o) => o.size * 2)`).
 
-When encoding, counts read before a value are written from the value (a size before a region, after it); fields named as lengths, and functions, must match it. Counts must be nonnegative safe integers. Only a directly supplied `Infinity` means the enclosing boundary; a field or callback returning Infinity is invalid. A region prefix must have a known fixed size; fixed mapped and refined numeric codecs work too. The child is encoded once, then the prefix is backpatched.
+Lengths are non-negative safe integers (`Infinity` only as a number given to the codec, not from a field or a function). When encoding, a count read before a value is written from the value, and fields and functions giving a length must agree with it. A size read before a region is written after the region's value, so its codec must have a fixed size (e.g. `u32le`, or a `map` of it).
 
-Until arrays require a nonempty encoding input whose last item, and no earlier item, satisfies the predicate. Decoding fails if input ends before that item or an unbounded item consumes no bytes. Finite counted arrays may contain zero-byte items.
+To be encoded, an array with `until` needs a last item for which `until` is true, and no other. Arrays read without a count (with `until`, or up to the end) fail on an item that takes no bytes, which would be read forever.
 
 ### Strings
 
@@ -84,11 +84,11 @@ string({ terminator: 0 }); // The text, then a zero
 string({ terminator: 0, max: 16 }); // The same, of at most 16 bytes (a string of 16 bytes has no zero)
 ```
 
-A fixed, named or callback string length reserves the whole storage region. Without options, encoding must fill it exactly. A terminator or padding allows shorter text. Decoding stops at the terminator, or trims trailing padding when no terminator is configured. Embedded encoded terminators are rejected, as are trailing pad units with padding alone; with both options, a terminator distinguishes trailing text from padding. Exactly full text needs no terminator.
+A string of a length (a number, a field or a function) takes all of it: without options, the text must fill it exactly. A terminator or padding allows shorter text: decoding stops at the terminator, or else removes the trailing padding. Text filling the whole length needs no terminator. Encoding rejects text that contains the terminator, or (with padding alone) ends with the padding, as it would decode to other text.
 
-A prefix counts the actual text bytes plus any terminator; it provides no padding budget. `string(Infinity, options)` uses the enclosing remainder. The terminated-options form consumes only through its terminator or `max`, including terminator bytes in the cap; EOF before either is truncation. `max` may be zero, an earlier numeric field, or a callback, but cannot be a prefix codec.
+A count read before the string (`string(u8)`) counts the bytes of the text and of its terminator, if it has one. `string(Infinity, options)` takes the rest of the input. `string({ terminator, max })` takes the bytes up to and including its terminator, or `max` bytes; `max` is a number, an earlier field or a function.
 
-The encodings are `"utf8"` (the default), `"latin1"`, `"ascii"` and `"utf16le"`: `string(8, { encoding: "utf16le", terminator: 0 })`. Lengths are in bytes; terminators and padding are bytes, or 16-bit units in UTF-16. UTF-16LE bounds must be even; its raw code units preserve BOMs and isolated surrogates. UTF-8 preserves BOMs and replaces malformed text. Latin1 maps byte values directly; ASCII decoding masks the high bit. Latin1 and ASCII encoders reject characters outside their domains. These rules also apply without Node's Buffer.
+The encodings are `"utf8"` (the default), `"latin1"`, `"ascii"` and `"utf16le"`: `string(8, { encoding: "utf16le", terminator: 0 })`. Lengths are in bytes (even ones in UTF-16); terminators and padding are bytes, or 16-bit units in UTF-16. Decoding keeps byte order marks; malformed UTF-8 becomes U+FFFD, UTF-16 keeps unpaired surrogates, and ASCII ignores the high bit. Encoding rejects characters that latin1 or ASCII do not have.
 
 For other representations of bytes, such as hex, use `map(bytes(length), …)`.
 
@@ -144,7 +144,7 @@ const Message = Header.merge(Raw);
 
 Functions get the decoded fields, or, when encoding, the values being encoded (so a field mapped from another representation has the type of both). Codecs defined outside a parser, such as match cases, do not know the parser's fields: functions in them need their argument annotated, e.g. with the parser's types, `(o: Output<typeof Header>) => …`.
 
-Callbacks must be pure. They see the logical earlier-field prefix in both directions, with literal and computed defaults resolved when encoding. They do not see later encode fields. Local fields shadow outer fields. `sized` and `lazy` retain literal defaults, while `map`, arrays, and presence wrappers do not. A map or custom codec accepting undefined still requires its input key. `optional` and `when` use null as the only absence marker; `when` rejects null when its condition is true.
+Functions must have no side effects, as they may be called again for the same value. When encoding, they see the fields before them (never later ones), with omitted literals and computed fields filled in. A parser's own fields hide those of the same names around it. A literal keeps its default (and may be omitted) through `sized` and `lazy`, but not through `map`, arrays, `optional` or `when`.
 
 ### Recursion
 
@@ -171,30 +171,32 @@ For formats the other codecs cannot express, `custom` takes functions of your ow
 ```ts
 // Variable-length integers (LEB128) of up to 32 bits.
 const varint = custom({
-  decode(bytes, final) {
+  decode(input, final) {
     let value = 0;
-    for (let i = 0; i < bytes.length && i < 5; i++) {
-      if (i === 4 && bytes[i] > 0x0f) throw new Error("varint exceeds u32");
-      value += (bytes[i] & 0x7f) * 2 ** (7 * i);
-      if (bytes[i] < 0x80) return { value, bytesRead: i + 1 };
+    for (let i = 0; i < input.length && i < 5; i++) {
+      if (i === 4 && input[i] > 0x0f) throw new Error("varint exceeds u32");
+      value += (input[i] & 0x7f) * 2 ** (7 * i);
+      if (input[i] < 0x80) return { value, bytesRead: i + 1 };
     }
-    if (!final && bytes.length < 5) return undefined;
+    if (!final && input.length < 5) return undefined;
     throw new Error("invalid varint");
   },
   encode(value: number) {
-    if (!Number.isInteger(value) || value < 0 || value > 0xffffffff)
+    if (!Number.isInteger(value) || value < 0 || value > 0xffffffff) {
       throw new Error("expected an unsigned 32-bit integer");
-    const bytes = [];
+    }
+    const digits = [];
+    let rest = value;
     do {
-      bytes.push((value % 128) | (value >= 128 ? 0x80 : 0));
-      value = Math.floor(value / 128);
-    } while (value);
-    return Uint8Array.from(bytes);
+      digits.push((rest % 128) | (rest >= 128 ? 0x80 : 0));
+      rest = Math.floor(rest / 128);
+    } while (rest);
+    return Uint8Array.from(digits);
   },
 });
 ```
 
-`decode` may be called again for a value (with more bytes), so it must have no side effects. With a `size`, it gets exactly that many bytes with `final=true`. Outer undefined requests more bytes; `{ value: undefined, bytesRead: n }` succeeds with an undefined value. Results must contain both members and consume a safe count within the supplied view (exactly `size` when declared). Custom DecodeError offsets are relative to that view and are rebased once by the adapter.
+`decode` may be called again for a value (with more bytes), so it must have no side effects. With a `size`, it gets exactly that many bytes (and `final` is true). Its result is `undefined` for more bytes, or `{ value, bytesRead }` (the value may be `undefined`), where `bytesRead` is at most the number of bytes it got (exactly `size`, if given). Offsets of the `DecodeError`s it throws are in the bytes it got.
 
 ## Decoding
 
@@ -208,7 +210,7 @@ Failures throw a `DecodeError` with a `code` (`"end-of-input"`, `"invalid"`, `"n
 
 `codec.encode(value)` returns the bytes. Small results are views of a buffer shared with other results (as Node.js does for small `Buffer`s), but never overwritten. `codec.encodeInto(value, bytes, offset?)` writes them to `bytes` instead, and returns the offset after them.
 
-Returned bytes are backed by ArrayBuffer, including custom encodings copied from shared memory, and can be used with Blob, Response and Web Crypto. Decode views and encodeInto targets also accept shared memory. Offsets must be safe integers within the supplied view; encodeInto may partially modify its target on failure, and overlapping source/target storage is unsupported.
+Results are views of `ArrayBuffer`s (never of shared memory), so they work with `Blob`, `Response` and Web Crypto. Inputs and the bytes of `encodeInto` may be shared memory. If `encodeInto` fails, it may have written part of the value; values must not be views of the bytes it writes to.
 
 The type of encoded values, `Input<typeof codec>`, can differ from the decoded one, `Output<typeof codec>`: literals and computed fields may be omitted.
 
@@ -221,7 +223,7 @@ const Chunk = bin()
 Chunk.encode({ data }); // `size` is computed
 ```
 
-Several fields are computed with an object of functions, `.computed({ size: …, count: … })`; each gets the original input with all computed keys absent. These callbacks run once before writing their group and cannot observe one another's results. Other omitted literal inputs remain omitted in this whole-input projection. Results must be defined. Supplied values must agree via `Object.is`, including object identity, NaN, and signed zero. Merged finalized groups retain their original computation scope; input objects are never changed.
+Several fields are computed with an object of functions, `.computed({ size: …, count: … })`; each function gets the value without the computed fields (and without filled-in literals), so they do not see each other's results. Results must not be `undefined`, and a value given for a computed field must be the computed one (as by `Object.is`). Merged into another parser, a parser computing fields still computes them from its own fields. Values being encoded are never changed.
 
 Values are checked: numbers must fit, arrays and bytes must have their length, strings must fit theirs, and values of conditions must be `null` exactly when their condition does not hold. Failures throw an `EncodeError` with the `path` of the field.
 
@@ -238,9 +240,9 @@ for await (const entry of decodeStream(
 }
 ```
 
-Values may span any number of chunks; a value that does is not decoded again from its start when more input arrives (but an initial attempt may repeat callbacks, and custom decoding may retry with each larger view). Values that read up to the end of the input end with the stream. If the input ends in the middle of a value, the iteration fails with a `DecodeError`. Stopping the iteration (or a failure) closes the source.
+Values may span any number of chunks: decoding continues as more input arrives, without starting over (though functions in a value may run twice, as it is first decoded as if its chunk held all of it). Values that read up to the end of the input end with the stream. If the input ends in the middle of a value, the iteration fails with a `DecodeError`. Stopping the iteration (or a failure) closes the source.
 
-Concurrent next calls are serialized. Return marks the iterator closed immediately, suppresses values from a pending pull, and waits for it to settle before closing the source; it cannot interrupt a source pull that never settles. Source errors retain their identity. Each yielded record must consume bytes. Retained byte views stay stable during later iteration, provided producers do not mutate or reuse their chunks. Buffering may grow to the largest value, including the whole stream for an EOF-reading codec.
+Calls of `next` run one after the other. `return()` ends the iteration at once, and closes the source once a pending read of it settles. Errors of the source are thrown as they are. Every value must take at least one byte. `bytes` values stay valid as long as the source does not reuse its chunks. A value spanning chunks is collected in a buffer of its own (holding the rest of the input, for a value that reads up to its end).
 
 For a Node.js stream of the values, use `Readable.from(decodeStream(codec, source))`.
 
@@ -262,26 +264,28 @@ const withValues = <T extends { count: number }, I extends { count: number }>(
 const Record = bin().u8("count").pipe(withValues);
 ```
 
-Standalone decode, encode, Reader and stream operations require context `unknown`; reusable dependent groups attach to an enclosing parser first. `Context<C>` names a codec's requirement; `AnyCodec` and `AnyBin` are acceptance types for generic boundaries.
+A codec reading fields around it (such as `bytes("length")`) only decodes and encodes in a parser that has them: `decode`, `encode`, `Reader` and streams take codecs that read none. `Context<typeof codec>` is the type of the fields a codec reads; `AnyCodec` and `AnyBin` accept any codec and any parser, in generic functions.
 
-Generic numeric-name filtering sometimes needs a callback length (as above) or a dependent codec defined before the generic function. Validate individual option literals with `satisfies StringOptions` or `satisfies TerminatedStringOptions<Fields>` before combining them into unions: TypeScript may lose excess-property checks in overlapping option unions. Runtime definition checks remain authoritative.
+In generic functions, give lengths as functions (as above), or define the codecs reading fields outside them: names of fields (`bytes("count")`) cannot be checked against a type parameter. TypeScript may miss a misspelled option in a union of option objects (`cond ? { terminator: 0 } : { padRight: 0 }`); options are also checked when a codec is defined.
 
 See [examples/tar.ts](examples/tar.ts) for a tar archive reader and writer, and [CHANGELOG.md](CHANGELOG.md) for changes.
 
 ## Performance
 
-`bench/parse.ts` measures full decoding, two-field selection, empty selection, streams and encoding on a database-like format with strings, nested parsers, arrays and a match. Use bounded, repeated runs on the target Node version and hardware; throughput depends on the schema and workload:
+`bench/parse.ts` measures decoding (of whole values, of two fields, of none, of a value per buffer, and in a stream) and encoding, of a database-like format with strings, nested parsers, arrays and a match. Throughput depends on the format; measure on your Node.js version and hardware:
 
 ```sh
-NODE_OPTIONS=--max-old-space-size=1536 timeout 120 node bench/parse.ts 100000
+node bench/parse.ts 100000
 ```
 
 ## Development
 
 ```sh
 npm install
-npm test          # mocha, runs the TypeScript tests directly
-npm run lint      # eslint + tsc (including the type tests in test/types)
+npm test          # vitest: the tests, and the type tests in test/types
+npm run lint      # oxlint, oxfmt --check, tsc, the built declarations, and
+                  # lint:generated (oxlint on the code that codecs compile to)
+npm run format    # oxfmt
 npm run build     # compiles src/ to lib/
 node bench/parse.ts
 ```

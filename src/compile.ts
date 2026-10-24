@@ -16,21 +16,23 @@
  * Functions of codecs that read fields of the parser they are in (and do
  * not hold them) get those fields as an object, `s`.
  */
+import type { AnyCodec, Cursor, Writer } from "./codec.ts";
 import {
   DecodeError,
-  ALL_FIELDS,
   EncodeError,
+  MORE,
   encodingWithin,
   within,
-  type AnyCodec,
-  type Cursor,
   type Path,
-  type Reads,
-  type Writer,
-} from "./codec.ts";
+} from "./errors.ts";
 
-/** What a parser decodes: every field, none (it only steps over the value), or the named ones. */
-export type Selection = "all" | "none" | ReadonlySet<string>;
+/** A callback reads the complete logical prefix, in addition to named dependencies. */
+export const ALL_FIELDS = Symbol("all fields");
+/** Earlier fields a codec reads (callbacks do not erase the named requirements). */
+export type Reads = readonly (string | typeof ALL_FIELDS)[];
+
+/** What a parser decodes: every field, or none (it only steps over the value). */
+export type Selection = "all" | "none";
 
 export type Mode = "decode" | "resume" | "encode";
 
@@ -43,7 +45,12 @@ const caches = new Map<string, WeakMap<AnyCodec, Map<Selection, Compiled>>>();
 /** The cache entries added while compiling, which are removed if compiling fails. */
 let added: [Map<Selection, Compiled>, Selection][] | undefined;
 
-/** Whether `codec` reads fields around it (so its function gets them). */
+/**
+ * Whether `codec` reads fields around it (so its function gets them).
+ *
+ * @param codec The codec to check.
+ * @returns `true` if it reads any field, by name or all of them.
+ */
 export function scoped(codec: AnyCodec): boolean {
   return codec.reads.length > 0;
 }
@@ -76,7 +83,10 @@ export function compile(
   let byCodec = caches.get(key);
   if (!byCodec) caches.set(key, (byCodec = new WeakMap()));
   let bySelection = byCodec.get(codec);
-  if (!bySelection) byCodec.set(codec, (bySelection = new Map()));
+  if (!bySelection) {
+    bySelection = new Map<Selection, Compiled>();
+    byCodec.set(codec, bySelection);
+  }
   const cached = bySelection.get(selection);
   if (cached) return cached;
 
@@ -86,8 +96,8 @@ export function compile(
   bySelection.set(
     selection,
     mode === "resume"
-      ? function* (...args: never[]) {
-          return yield* fn(...args) as Generator<number>;
+      ? function* stub(...args: never[]) {
+          return yield* fn(...args) as Generator<number, unknown>;
         }
       : (...args) => fn(...args),
   );
@@ -98,8 +108,9 @@ export function compile(
     fn = g.build(codec.emitBody(g, selection));
     if (!inner) {
       const missing = codec.reads.find((name) => name !== ALL_FIELDS);
-      if (missing !== undefined)
+      if (missing !== undefined) {
         throw new Error(`\`${missing}\` is not a field before it`);
+      }
     }
   } catch (e) {
     if (outermost) {
@@ -127,7 +138,9 @@ export class Gen {
   /** The field being emitted (for errors). */
   field: string | undefined;
   /** Variables of the array indexes inside the field. */
-  private readonly indexes: string[] = [];
+  private indexes: string[] = [];
+  /** The path of the parser being emitted, in the function's (if it is inlined). */
+  private prefix: string[] = [];
   private readonly consts = new Map<unknown, string>();
   private readonly lines: string[] = [];
   /** Variables declared at the start of the function (e.g. set in cases of a `switch`, and read after it). */
@@ -143,23 +156,41 @@ export class Gen {
     this.scope = scope ? "s" : undefined;
   }
 
-  /** The name of a constant holding `value`. */
+  /**
+   * The name of a constant holding `value`.
+   *
+   * @param value The value, of any type.
+   * @returns The name, the same for equal values (as by `Object.is`).
+   */
   k(value: unknown): string {
     // (Keys of maps are equal as with `===`, which -0 is to 0.)
     const key = Object.is(value, -0) ? NEGATIVE_ZERO : value;
     let name = this.consts.get(key);
-    if (!name) this.consts.set(key, (name = `k${this.consts.size}`));
+    if (name === undefined) {
+      name = `k${this.consts.size}`;
+      this.consts.set(key, name);
+    }
     return name;
   }
 
-  /** A new variable holding `expr`. */
+  /**
+   * A new variable holding `expr`.
+   *
+   * @param expr An expression of the value.
+   * @param keyword How the variable is declared (`let` if it is set later).
+   * @returns The name of the variable.
+   */
   let(expr: string, keyword: "const" | "let" = "const"): string {
     const v = `v${this.vars++}`;
     this.line(`${keyword} ${v} = ${expr};`);
     return v;
   }
 
-  /** A new variable, declared at the start of the function. */
+  /**
+   * A new variable, declared at the start of the function.
+   *
+   * @returns The name of the variable.
+   */
   hoist(): string {
     const v = `h${this.hoisted.length}`;
     this.hoisted.push(v);
@@ -170,14 +201,25 @@ export class Gen {
     this.lines.push(code);
   }
 
-  /** The offset `k` bytes after the current position. */
+  /**
+   * The offset `k` bytes after the current position.
+   *
+   * @param k The number of bytes, or an expression of it.
+   * @returns An expression of the offset.
+   */
   at(k: number | string = 0): string {
-    if (typeof k === "string")
+    if (typeof k === "string") {
       return this.pos ? `o + ${this.pos} + ${k}` : `o + ${k}`;
+    }
     return this.pos + k ? `o + ${this.pos + k}` : "o";
   }
 
-  /** Whether a previous bounds check already covers `n` bytes at this position. */
+  /**
+   * Whether a previous bounds check already covers `n` bytes at this position.
+   *
+   * @param n The number of bytes.
+   * @returns `true` if the bytes need no check of their own.
+   */
   available(n: number): boolean {
     return this.pos + n <= this.checked;
   }
@@ -185,10 +227,13 @@ export class Gen {
   /**
    * Ensures that `n` more bytes can be read (or written); `run` names the
    * fields they belong to, for errors.
+   *
+   * @param n The number of bytes, or an expression of it.
+   * @param run The fields of the bytes, with the offsets they end at.
    */
   need(n: number | string, run?: Run): void {
     if (typeof n === "number") {
-      if (this.pos + n <= this.checked) return;
+      if (this.available(n)) return;
       this.checked = this.pos + n;
     }
     const reach = this.at(n);
@@ -206,18 +251,19 @@ export class Gen {
         '"length exceeds the safe offset range"',
       );
       this.line(`yield ${reach}; ${this.reload()} }`);
-    } else if (run) {
-      this.line(
-        `if (${reach} > end) throw ${this.k(runEnded)}(${this.at()}, end, ${this.k(run)}, ${this.path()});`,
-      );
     } else {
-      this.line(
-        `if (${reach} > end) throw ${this.k(ended)}(${this.at()}, ${reach}, end, ${this.path()});`,
-      );
+      const error = run
+        ? `${this.k(runEnded)}(${this.at()}, end, ${this.k(run)}, ${this.path()})`
+        : `${this.k(ended)}(${this.at()}, ${reach}, end, ${this.path()})`;
+      this.line(`if (${reach} > end) throw ${this.ending(error)};`);
     }
   }
 
-  /** Moves past `n` bytes. */
+  /**
+   * Moves past `n` bytes.
+   *
+   * @param n The number of bytes, or an expression of it.
+   */
   skip(n: number | string): void {
     if (typeof n === "number") {
       this.pos += n;
@@ -228,7 +274,11 @@ export class Gen {
     }
   }
 
-  /** Moves to `offset`. */
+  /**
+   * Moves to `offset`.
+   *
+   * @param offset An expression of the offset.
+   */
   seek(offset: string): void {
     this.flush();
     this.line(`o = ${offset};`);
@@ -243,7 +293,14 @@ export class Gen {
     this.pos = 0;
   }
 
-  /** Emits `head { body tail`; positions inside and after it are only known at run time. */
+  /**
+   * Emits `head { body tail`; positions inside and after it are only known at
+   * run time.
+   *
+   * @param head The code before the brace, e.g. `if (…)`.
+   * @param body Emits the code inside the block.
+   * @param tail The code ending the block, e.g. `break; }`.
+   */
   block(head: string, body: () => void, tail = "}"): void {
     this.flush();
     this.checked = 0;
@@ -254,11 +311,19 @@ export class Gen {
     this.checked = 0;
   }
 
-  /** Emits a loop over an index from 0 to `count` (without one, until the body breaks). */
-  loop(count: string | undefined, body: (i: string) => void): void {
+  /**
+   * Emits a loop over an index from 0 to `count` (without one, until the
+   * body breaks); `each` bytes are available in each iteration.
+   *
+   * @param count An expression of the number of iterations, or `undefined`.
+   * @param body Emits the code of an iteration, given the index's variable.
+   * @param each The number of bytes known to be available in an iteration.
+   */
+  loop(count: string | undefined, body: (i: string) => void, each = 0): void {
     const i = `i${this.vars++}`;
     const test = count === undefined ? "" : ` ${i} < ${count}`;
     this.block(`for (let ${i} = 0;${test}; ${i}++)`, () => {
+      this.checked = each;
       this.indexes.push(i);
       body(i);
       this.indexes.pop();
@@ -266,8 +331,32 @@ export class Gen {
   }
 
   /**
+   * Emits the code of a parser inlined at the current position: its fields
+   * are its own (and it sees those around it).
+   *
+   * @param emit Emits the parser's code.
+   * @returns What `emit` returns.
+   */
+  inline<T>(emit: () => T): T {
+    const { fields, field, indexes, prefix } = this;
+    this.prefix = this.pathOf();
+    this.indexes = [];
+    this.fields = new Map(fields);
+    this.field = undefined;
+    try {
+      return emit();
+    } finally {
+      Object.assign(this, { fields, field, indexes, prefix });
+    }
+  }
+
+  /**
    * Emits a call of the function of `codec` at the current position:
    * decoding (`wanted` or not) or encoding `value`; returns the value.
+   *
+   * @param codec The codec whose function is called.
+   * @param arg Whether the value is wanted, or (encoding) an expression of it.
+   * @returns The variable holding the decoded value, or "" if there is none.
    */
   call(codec: AnyCodec, arg: boolean | string): string {
     const scope = scoped(codec) ? `, ${this.context(codec.reads)}` : "";
@@ -279,7 +368,9 @@ export class Gen {
       this.guard(`${fn}(w, ${arg as string}${scope});`);
       this.line(this.reload());
     } else {
-      const fn = this.k(compile(codec, this.mode, arg ? "all" : "none", true));
+      const fn = this.k(
+        compile(codec, this.mode, arg === true ? "all" : "none", true),
+      );
       v = this.let("undefined", "let");
       this.line("cur.offset = o;");
       this.guard(
@@ -296,6 +387,11 @@ export class Gen {
   /**
    * Emits a call decoding `codec` (if `wanted`) in the next `n` bytes, which
    * are available: it may not read past them, and they are skipped after it.
+   *
+   * @param n The number of bytes, or an expression of it.
+   * @param codec The codec of the value in the bytes.
+   * @param wanted Whether the value is decoded (else it is stepped over).
+   * @returns The variable holding the value, or "" if it is not wanted.
    */
   region(n: number | string, codec: AnyCodec, wanted: boolean): string {
     const fn = this.k(compile(codec, "decode", wanted ? "all" : "none", true));
@@ -316,22 +412,41 @@ export class Gen {
     return wanted ? v : "";
   }
 
-  /** Emits code waiting for the end of the input; returns the number of bytes left. */
+  /**
+   * Emits code waiting for the end of the input; returns the number of bytes
+   * left.
+   *
+   * @returns The variable holding the number of bytes after the position.
+   */
   rest(): string {
     this.line(
       this.mode === "resume"
         ? `while (!cur.final) { yield Infinity; ${this.reload()} }`
-        : `if (!cur.final) throw new ${this.k(DecodeError)}("end-of-input", "waiting for end of input", ${this.at()}, ${this.path()});`,
+        : `if (!cur.final) throw ${this.k(MORE)};`,
     );
-    return this.let(`end - ${this.at()}`);
+    return this.let(`end - (${this.at()})`);
   }
 
-  /** Emits a call of a function (of the user's, or one that may throw); returns its value. */
+  /**
+   * Emits a call of a function (of the user's, or one that may throw);
+   * returns its value.
+   *
+   * @param fn The function to call.
+   * @param args Expressions of its arguments.
+   * @returns The variable holding its result.
+   */
   callback(fn: (...args: never[]) => unknown, ...args: string[]): string {
     return this.callbackAt(this.at(), fn, ...args);
   }
 
-  /** Calls a function whose failure belongs to the value beginning at `at`. */
+  /**
+   * Calls a function whose failure belongs to the value beginning at `at`.
+   *
+   * @param at An expression of the offset of the value.
+   * @param fn The function to call.
+   * @param args Expressions of its arguments.
+   * @returns The variable holding its result.
+   */
   callbackAt(
     at: string,
     fn: (...args: never[]) => unknown,
@@ -342,21 +457,72 @@ export class Gen {
     return v;
   }
 
-  /** Emits a check that fails if `failed` holds (decoding: at offset `at`). */
+  /**
+   * Emits a check that fails if `failed` holds (decoding: at offset `at`).
+   *
+   * @param failed An expression that is true if the value is wrong.
+   * @param code The code of the `DecodeError` (when decoding).
+   * @param detail An expression of the error's detail.
+   * @param at An expression of the offset of the error.
+   */
   check(
     failed: string,
     code: DecodeError["code"],
     detail: string,
     at = this.at(),
   ): void {
-    const error =
-      this.mode === "encode"
-        ? `${this.k(encodeFailed)}(${detail}, ${this.path()})`
-        : `new ${this.k(DecodeError)}(${JSON.stringify(code)}, ${detail}, ${at}, ${this.path()})`;
-    this.line(`if (${failed}) throw ${error};`);
+    const error = this.error(code, detail, at);
+    this.line(
+      `if (${failed}) throw ${code === "end-of-input" ? this.ending(error) : error};`,
+    );
   }
 
-  /** An object of the fields before the current one (and around the parser), for callbacks. */
+  /**
+   * Emits a statement that fails.
+   *
+   * @param code The code of the `DecodeError` (when decoding).
+   * @param detail An expression of the error's detail.
+   */
+  fail(code: DecodeError["code"], detail: string): void {
+    this.line(`throw ${this.error(code, detail)};`);
+  }
+
+  /**
+   * An expression of the error of a failure at the current field.
+   *
+   * @param code The code of the `DecodeError` (when decoding).
+   * @param detail An expression of the error's detail.
+   * @param at An expression of the offset of the error.
+   * @returns A `DecodeError`, or (encoding) an `EncodeError`.
+   */
+  private error(
+    code: DecodeError["code"],
+    detail: string,
+    at = this.at(),
+  ): string {
+    return this.mode === "encode"
+      ? `${this.k(encodeFailed)}(${detail}, ${this.path()})`
+      : `new ${this.k(DecodeError)}(${JSON.stringify(code)}, ${detail}, ${at}, ${this.path()})`;
+  }
+
+  /**
+   * What decoding throws at the end of the input: `error`, or `MORE` if more
+   * input may follow.
+   *
+   * @param error An expression of the error.
+   * @returns An expression of the value to throw.
+   */
+  private ending(error: string): string {
+    return `cur.final ? ${error} : ${this.k(MORE)}`;
+  }
+
+  /**
+   * An object of the fields before the current one (and around the parser),
+   * for callbacks.
+   *
+   * @param reads The fields the object holds (by default, all of them).
+   * @returns The variable holding the object.
+   */
   context(reads: Reads = [ALL_FIELDS]): string {
     const named = new Map<string, string>();
     for (const name of reads) {
@@ -366,24 +532,36 @@ export class Gen {
     const entries = [...(all ? this.fields : named)].map(
       ([name, v]) => `${JSON.stringify(name)}: ${v}`,
     );
-    if (all && this.scope) entries.unshift(`...${this.scope}`);
+    if (all && this.scope !== undefined) entries.unshift(`...${this.scope}`);
     return this.let(`{ ${entries.join(", ")} }`);
   }
 
-  /** The expression of field `name` (of the parser, or around it). */
+  /**
+   * The expression of field `name` (of the parser, or around it).
+   *
+   * @param name The name of the field.
+   * @returns Its variable, or a property of the object of outer fields.
+   */
   ref(name: string): string {
     const v = this.fields.get(name);
     if (v !== undefined) return v;
-    if (this.scope) return `${this.scope}[${JSON.stringify(name)}]`;
+    if (this.scope !== undefined) {
+      return `${this.scope}[${JSON.stringify(name)}]`;
+    }
     throw new Error(
       `\`${name}\` is not a field before ${this.field === undefined ? "it" : `\`${this.field}\``}`,
     );
   }
 
-  /** Builds the function; decoders return `result`. */
+  /**
+   * Builds the function; decoders return `result`.
+   *
+   * @param result An expression of the decoded value, or "" for `undefined`.
+   * @returns The compiled function.
+   */
   build(result: string): Compiled {
     this.flush();
-    const s = this.scope ? `, ${this.scope}` : "";
+    const s = this.scope === undefined ? "" : `, ${this.scope}`;
     const [head, setup, done] =
       this.mode === "encode"
         ? [
@@ -401,7 +579,7 @@ export class Gen {
       ...[...this.consts.values()].map((name, i) => `const ${name} = K[${i}];`),
       `return ${head} {`,
       setup,
-      ...(this.hoisted.length ? [`let ${this.hoisted.join(", ")};`] : []),
+      ...(this.hoisted.length > 0 ? [`let ${this.hoisted.join(", ")};`] : []),
       ...this.lines,
       done,
       "};",
@@ -409,30 +587,54 @@ export class Gen {
     const values = [...this.consts.keys()].map((key) =>
       key === NEGATIVE_ZERO ? -0 : key,
     );
-    return new Function("K", source)(values) as Compiled;
+    // oxlint-disable-next-line no-new-func, typescript/no-implied-eval -- Codecs compile to functions.
+    const make = new Function("K", source) as (
+      constants: unknown[],
+    ) => Compiled;
+    return make(values);
   }
 
-  /** Statements reloading the buffer, which the stream or a growing writer (moving the offset) may have replaced. */
+  /**
+   * Statements reloading the buffer, which the stream or a growing writer
+   * (moving the offset) may have replaced.
+   *
+   * @returns The code of the statements, for the mode.
+   */
   reload(): string {
     return this.mode === "encode"
       ? "o = w.offset; buf = w.bytes; dv = w.view;"
       : "buf = cur.bytes; dv = cur.view; end = cur.end;";
   }
 
-  /** Emits a statement whose errors are located at the current field (and then runs `always`). */
+  /**
+   * Emits a statement whose errors are located at the current field (and then
+   * runs `always`).
+   *
+   * @param statement The code of the statement.
+   * @param always Code run after the statement, even if it throws.
+   * @param at An expression of the offset where decoding errors are located.
+   */
   guard(statement: string, always?: string, at = this.at()): void {
     const located =
       this.mode === "encode"
         ? `${this.k(encodingWithin)}(e, ${this.path()})`
         : `${this.k(within)}(e, ${at}, ${this.path()})`;
-    const end = always ? ` finally { ${always} }` : "";
+    const end = always === undefined ? "" : ` finally { ${always} }`;
     this.line(`try { ${statement} } catch (e) { throw ${located}; }${end}`);
   }
 
-  /** The location of the current field, as an array expression. */
+  /**
+   * The location of the current field, as an array expression.
+   *
+   * @returns An array of the field names and index variables, as code.
+   */
   path(): string {
+    return `[${this.pathOf().join(", ")}]`;
+  }
+
+  private pathOf(): string[] {
     const field = this.field === undefined ? [] : [JSON.stringify(this.field)];
-    return `[${[...field, ...this.indexes].join(", ")}]`;
+    return [...this.prefix, ...field, ...this.indexes];
   }
 }
 
@@ -453,7 +655,16 @@ function ended(
   );
 }
 
-/** The end of input within a run of fields starting at `start`: in the first field it cuts. */
+/**
+ * The end of input within a run of fields starting at `start`: in the first
+ * field it cuts.
+ *
+ * @param start The offset where the run starts.
+ * @param end The offset where the input ends.
+ * @param run The fields, with the offsets (from `start`) they end at.
+ * @param path The location of the run.
+ * @returns The error, in the first field that does not fit.
+ */
 function runEnded(
   start: number,
   end: number,
@@ -462,11 +673,12 @@ function runEnded(
 ): DecodeError {
   let from = start;
   for (const [name, until] of run) {
-    if (start + until > end)
+    if (start + until > end) {
       return ended(from, start + until, end, [...path, name]);
+    }
     from = start + until;
   }
-  return ended(start, start + run[run.length - 1][1], end, path);
+  return ended(start, start + run.at(-1)![1], end, path);
 }
 
 function encodeFailed(detail: string, path: Path): EncodeError {

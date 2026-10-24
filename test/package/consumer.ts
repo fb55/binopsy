@@ -7,6 +7,7 @@ import {
   bin,
   bytes,
   decodeStream,
+  lazy,
   literal,
   match,
   string,
@@ -55,15 +56,22 @@ interface Tree {
 }
 export const Tree: Codec<Tree> = bin()
   .field("name", string(u8))
-  .field("children", array(null as unknown as Codec<Tree>, u16le));
+  .field(
+    "children",
+    array(
+      lazy(() => Tree),
+      u16le,
+    ),
+  );
 
 export async function names(
   source: AsyncIterable<Uint8Array>,
 ): Promise<number[]> {
   const kinds: number[] = [];
-  for await (const p of decodeStream(Packet.pick("kind"), source))
+  for await (const p of decodeStream(Packet.pick("kind"), source)) {
     kinds.push(p.kind);
+  }
   return kinds;
 }
 // @ts-expect-error internals are not part of the types
-Packet.emitRead;
+export const internal = Packet.emitRead;

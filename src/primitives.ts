@@ -30,7 +30,7 @@ const valid: Record<Method, (x: string) => string> = {
   Float64: (x) => `typeof ${x} === "number"`,
 };
 
-/** @internal A number of a fixed size. */
+/** A number of a fixed size. @internal */
 export class Primitive<
   T extends number | bigint = number | bigint,
 > extends Codec<T> {
@@ -49,7 +49,12 @@ export class Primitive<
     this.le = size > 1 ? `, ${le}` : "";
   }
 
-  /** An expression reading a value at offset `at`. */
+  /**
+   * An expression reading a value at offset `at`.
+   *
+   * @param at An expression of the offset.
+   * @returns An index into `buf` (for bytes), or a call of a `DataView` method.
+   */
   expr(at: string): string {
     return this.method === "Uint8"
       ? `buf[${at}]`
@@ -69,7 +74,14 @@ export class Primitive<
     g.skip(this.size);
   }
 
-  /** Emits code checking `value` and writing it at offset `at` (which has room). */
+  /**
+   * Emits code checking `value` and writing it at offset `at` (which has
+   * room).
+   *
+   * @param g The generator of the function.
+   * @param value The variable holding the value.
+   * @param at An expression of the offset.
+   */
   store(g: Gen, value: string, at: string): void {
     g.check(
       `!(${this.size <= 4 && !this.method.startsWith("Float") ? `typeof ${value} === "number" && ` : ""}${valid[this.method](value)})`,
