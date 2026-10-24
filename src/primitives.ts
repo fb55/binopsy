@@ -120,11 +120,11 @@ export class Primitive<
     );
     if (this.size === 3) {
       const [high, middle, low] = this.bytes(at);
-      g.line(
+      g.write(
         `${high} = ${value} >> 16; ${middle} = ${value} >> 8; ${low} = ${value};`,
       );
     } else {
-      g.line(
+      g.write(
         this.method === "Uint8"
           ? `buf[${at}] = ${value};`
           : `dv.set${this.method}(${at}, ${value}${this.order});`,

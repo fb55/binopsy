@@ -48,6 +48,7 @@ export abstract class Codec<O = unknown, I = O, Ctx = unknown> {
   readonly reads: Reads;
   #decoder: Compiled | undefined;
   #encoder: Encoder | undefined;
+  #sizer: Encoder | undefined;
 
   /** @internal */
   constructor(size: number, checks = false, reads: Reads = []) {
@@ -87,7 +88,7 @@ export abstract class Codec<O = unknown, I = O, Ctx = unknown> {
    * @internal
    */
   emitBody(g: Gen, selection: Selection): string {
-    if (g.mode !== "encode") return this.emitRead(g, selection !== "none");
+    if (!g.encoding) return this.emitRead(g, selection !== "none");
     this.emitWrite(g, "v");
     return "";
   }
@@ -157,6 +158,21 @@ export abstract class Codec<O = unknown, I = O, Ctx = unknown> {
   }
 
   /**
+   * The number of bytes `value` encodes to, computed without encoding it
+   * (but for `custom` codecs of no fixed size, which are encoded). It does
+   * not check the value: encoding may still fail.
+   *
+   * @param value The value to measure.
+   * @returns The number of bytes.
+   */
+  sizeOf(this: Standalone, value: I): number {
+    const codec = this as unknown as AnyCodec;
+    const w = new Writer(NOTHING);
+    (codec.#sizer ??= compile(codec, "size"))(w, value);
+    return w.offset;
+  }
+
+  /**
    * The compiled decoder of the whole value.
    *
    * @returns The decoder, compiled on first use.
@@ -218,6 +234,9 @@ export interface Cursor {
  * written to) the same bytes, and views are slow to create. They are kept
  * until the current job ends (a `WeakMap` would cost more than it saves).
  */
+/** The buffer of writers that only size values. */
+const NOTHING = new Uint8Array(0);
+
 let last: Uint8Array | undefined;
 let lastView: DataView | undefined;
 

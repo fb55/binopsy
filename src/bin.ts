@@ -612,7 +612,7 @@ class Parser extends Codec<Obj> {
   }
 
   override emitBody(g: Gen, selection: Selection): string {
-    if (g.mode === "encode") {
+    if (g.encoding) {
       this.encodeObject(g, "v");
       return "";
     }
@@ -889,7 +889,7 @@ class Parser extends Codec<Obj> {
     g.field = undefined;
     g.need(bytes.length);
     for (const [j, parts] of bytes.entries()) {
-      g.line(`buf[${g.at(j)}] = ${parts.join(" | ")};`);
+      g.write(`buf[${g.at(j)}] = ${parts.join(" | ")};`);
     }
     g.skip(bytes.length);
     return i + fields.length - 1;
@@ -932,7 +932,7 @@ function emitCases(
       }
     }
     g.line(`${branch} = ${i};`);
-    if (g.mode !== "encode") {
+    if (!g.encoding) {
       parts[i] = own.map((part) =>
         "branch" in part
           ? part

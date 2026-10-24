@@ -69,6 +69,7 @@ export async function roundtrip(
   const wire = hex(bytes);
   expect(codec.decode(wire)).toStrictEqual(value);
   expect((codec as Codec<unknown, unknown>).encode(input)).toStrictEqual(wire);
+  expect((codec as Codec<unknown, unknown>).sizeOf(input)).toBe(wire.length);
   const reader = new Reader(wire);
   reader.read(bin().field("value", codec).pick());
   expect(reader.offset).toBe(wire.length);

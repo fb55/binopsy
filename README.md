@@ -272,6 +272,7 @@ WritableChunk.encode({ type: "IEND", data: new Uint8Array(0) });
 - `.computed(name, f)` computes one field; `.computed({ … })` several, each from the value without the computed fields. Like every method, it returns a new parser (to which no fields can be added); `Chunk` is unchanged.
 - Values are checked: numbers must fit, arrays and bytes must have their length, and text must fit its string. Failures throw an `EncodeError` with the path of the field: a `name` of 300 bytes gives `` expected u8, got 300 in `name` ``.
 - `encodeInto(value, bytes, offset?)` writes to a buffer you have, and returns the offset after the value. If it fails, it may have written part of the value.
+- `sizeOf(value)` is the number of bytes of `value`, without encoding it (`custom` codecs of no fixed `size` are encoded). It does not check the value.
 
 ## Recursive structures
 
@@ -449,7 +450,7 @@ Field names are unique: adding a name twice throws when the parser is defined (T
 | `custom({ decode, encode?, size? })`              | A codec of functions of your own                                                                                        |
 | `fail(message)`                                   | Nothing: decoding and encoding fail (e.g. for parts that are not supported)                                             |
 
-Every codec has `decode`, `encode` and `encodeInto`, and `size`: the size of every value in bytes, or `NaN` if it varies (or, for `lazy`, is not known yet).
+Every codec has `decode`, `encode`, `encodeInto` and `sizeOf`, and `size`: the size of every value in bytes, or `NaN` if it varies (or, for `lazy`, is not known yet).
 
 ### Lengths
 

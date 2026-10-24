@@ -34,7 +34,8 @@ export type Reads = readonly (string | typeof ALL_FIELDS)[];
 /** What a parser decodes: every field, or none (it only steps over the value). */
 export type Selection = "all" | "none";
 
-export type Mode = "decode" | "resume" | "encode";
+/** Sizing is encoding without writing (or checking): only the offset moves. */
+export type Mode = "decode" | "resume" | "encode" | "size";
 
 export type Decoder = (cur: Cursor, scope?: object) => unknown;
 export type Encoder = (w: Writer, value: unknown, scope?: object) => void;
@@ -61,7 +62,7 @@ export function scoped(codec: AnyCodec): boolean {
  */
 export function compile(
   codec: AnyCodec,
-  mode: "encode",
+  mode: "encode" | "size",
   selection?: "all",
   inner?: boolean,
 ): Encoder;
@@ -159,6 +160,24 @@ export class Gen {
   }
 
   /**
+   * Whether the function encodes (or sizes) values.
+   *
+   * @returns `true` when encoding or sizing.
+   */
+  get encoding(): boolean {
+    return this.mode === "encode" || this.mode === "size";
+  }
+
+  /**
+   * Emits a statement writing bytes (none when sizing).
+   *
+   * @param statement The code of the statement.
+   */
+  write(statement: string): void {
+    if (this.mode !== "size") this.line(statement);
+  }
+
+  /**
    * The name of a constant holding `value`.
    *
    * @param value The value, of any type.
@@ -234,6 +253,7 @@ export class Gen {
    * @param run The fields of the bytes, with the offsets they end at.
    */
   need(n: number | string, run?: Run): void {
+    if (this.mode === "size") return;
     if (typeof n === "number") {
       if (this.available(n)) return;
       this.checked = this.pos + n;
@@ -364,14 +384,15 @@ export class Gen {
     const scope = scoped(codec) ? `, ${this.context(codec.reads)}` : "";
     this.flush();
     let v = "";
-    if (this.mode === "encode") {
-      const fn = this.k(compile(codec, "encode", "all", true));
+    const { mode } = this;
+    if (mode === "encode" || mode === "size") {
+      const fn = this.k(compile(codec, mode, "all", true));
       this.line("w.offset = o;");
       this.guard(`${fn}(w, ${arg as string}${scope});`);
       this.line(this.reload());
     } else {
       const fn = this.k(
-        compile(codec, this.mode, arg === true ? "all" : "none", true),
+        compile(codec, mode, arg === true ? "all" : "none", true),
       );
       v = this.let("undefined", "let");
       this.line("cur.offset = o;");
@@ -445,6 +466,7 @@ export class Gen {
     detail: string,
     at = this.at(),
   ): void {
+    if (this.mode === "size") return;
     const error = this.error(code, detail, at);
     this.line(
       `if (${failed}) throw ${code === "end-of-input" ? this.ending(error) : error};`,
@@ -474,7 +496,7 @@ export class Gen {
     detail: string,
     at = this.at(),
   ): string {
-    return this.mode === "encode"
+    return this.encoding
       ? `${this.k(encodeFailed)}(${detail}, ${this.path()})`
       : `new ${this.k(DecodeError)}(${JSON.stringify(code)}, ${detail}, ${at}, ${this.path()})`;
   }
@@ -545,18 +567,17 @@ export class Gen {
   build(result: string): Compiled {
     this.flush();
     const s = this.scope === undefined ? "" : `, ${this.scope}`;
-    const [head, setup, done] =
-      this.mode === "encode"
-        ? [
-            `function encode(w, v${s})`,
-            "let buf = w.bytes, dv = w.view, o = w.offset;",
-            "w.offset = o;",
-          ]
-        : [
-            `function${this.mode === "resume" ? "*" : ""} decode(cur${s})`,
-            `${this.mode === "resume" ? "let" : "const"} buf = cur.bytes, dv = cur.view, end = cur.end;\nlet o = cur.offset;`,
-            `cur.offset = o;\nreturn ${result || "undefined"};`,
-          ];
+    const [head, setup, done] = this.encoding
+      ? [
+          `function encode(w, v${s})`,
+          "let buf = w.bytes, dv = w.view, o = w.offset;",
+          "w.offset = o;",
+        ]
+      : [
+          `function${this.mode === "resume" ? "*" : ""} decode(cur${s})`,
+          `${this.mode === "resume" ? "let" : "const"} buf = cur.bytes, dv = cur.view, end = cur.end;\nlet o = cur.offset;`,
+          `cur.offset = o;\nreturn ${result || "undefined"};`,
+        ];
     const source = [
       '"use strict";',
       ...[...this.consts.values()].map((name, i) => `const ${name} = K[${i}];`),
@@ -584,7 +605,7 @@ export class Gen {
    * @returns The code of the statements, for the mode.
    */
   reload(): string {
-    return this.mode === "encode"
+    return this.encoding
       ? "o = w.offset; buf = w.bytes; dv = w.view;"
       : "buf = cur.bytes; dv = cur.view; end = cur.end;";
   }
@@ -598,10 +619,9 @@ export class Gen {
    * @param at An expression of the offset where decoding errors are located.
    */
   guard(statement: string, always?: string, at = this.at()): void {
-    const located =
-      this.mode === "encode"
-        ? `${this.k(encodingWithin)}(e, ${this.path()})`
-        : `${this.k(within)}(e, ${at}, ${this.path()})`;
+    const located = this.encoding
+      ? `${this.k(encodingWithin)}(e, ${this.path()})`
+      : `${this.k(within)}(e, ${at}, ${this.path()})`;
     const end = always === undefined ? "" : ` finally { ${always} }`;
     this.line(`try { ${statement} } catch (e) { throw ${located}; }${end}`);
   }

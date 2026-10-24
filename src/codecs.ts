@@ -205,7 +205,7 @@ class Bytes extends Codec<Uint8Array> {
     writeLength(g, this.length, count, "bytes");
     const n = Number.isFinite(this.size) ? this.size : count;
     g.need(n);
-    g.line(`buf.set(${value}, ${g.at()});`);
+    g.write(`buf.set(${value}, ${g.at()});`);
     g.skip(n);
   }
 }
@@ -738,6 +738,10 @@ class Str extends Codec<string> {
    */
   private store(g: Gen, value: string, size: string, n: number | string): void {
     const { unit, terminator, pad, encoding } = this;
+    if (g.mode === "size") {
+      g.skip(n);
+      return;
+    }
     g.need(n);
     const start = g.let(g.at());
     g.callback(texts[encoding].write, "buf", start, value);
@@ -788,11 +792,15 @@ function writeFirst(g: Gen, value: string, count: Primitive | number): void {
     `"expected a string, got " + String(${value})`,
   );
   const before = count instanceof Primitive ? count.size : 0;
+  const plus = (n: string): string => (before ? `${before} + ${n}` : n);
+  if (g.mode === "size") {
+    g.skip(plus(g.let(`${g.k(texts.utf8.size)}(${value})`)));
+    return;
+  }
   const room = g.let(`3 * ${value}.length`, "let");
   g.line(
     `if (${g.at(before)} + ${room} > buf.length) ${room} = ${g.k(texts.utf8.size)}(${value});`,
   );
-  const plus = (n: string): string => (before ? `${before} + ${n}` : n);
   g.need(plus(room));
   const size = g.let(
     `${g.k(texts.utf8.write)}(buf, ${g.at(before)}, ${value})`,
@@ -912,7 +920,10 @@ class List extends Codec<unknown[]> {
       return;
     }
     writeLength(g, length, count, "items");
-    if (item instanceof Primitive) {
+    const each = Number.isFinite(item.size) ? item.size : 0;
+    if (g.mode === "size" && each) {
+      g.skip(`${count} * ${each}`);
+    } else if (item instanceof Primitive) {
       // Numbers: room for all of them first.
       const size = `${count} * ${item.size}`;
       g.need(size);
@@ -922,7 +933,6 @@ class List extends Codec<unknown[]> {
       g.skip(size);
     } else {
       // Items of a fixed size: room for all of them first.
-      const each = Number.isFinite(item.size) ? item.size : 0;
       if (each) g.need(`${count} * ${each}`);
       g.loop(
         count,
@@ -1040,9 +1050,11 @@ class Sized extends Codec {
       } else {
         const write = g.k(compile(length, "encode"));
         g.flush();
-        g.guard(
-          `const e = o; w.offset = w.base + ${at}; ${write}(w, ${used}); w.offset = o = e;`,
-        );
+        if (g.mode !== "size") {
+          g.guard(
+            `const e = o; w.offset = w.base + ${at}; ${write}(w, ${used}); w.offset = o = e;`,
+          );
+        }
       }
       return;
     }
@@ -1059,7 +1071,7 @@ class Sized extends Codec {
     );
     const padding = g.let(`${size} - ${used}`);
     g.need(padding);
-    g.line(`buf.fill(0, o, o + ${padding});`);
+    g.write(`buf.fill(0, o, o + ${padding});`);
     g.skip(padding);
   }
 }

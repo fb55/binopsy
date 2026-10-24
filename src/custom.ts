@@ -186,6 +186,10 @@ class Custom extends Codec {
       );
       return;
     }
+    if (g.mode === "size" && Number.isFinite(this.size)) {
+      g.skip(this.size);
+      return;
+    }
     const bytes = g.callback(
       encodeWith,
       g.k(this.toBytes),
@@ -194,7 +198,7 @@ class Custom extends Codec {
     );
     const n = Number.isFinite(this.size) ? this.size : `${bytes}.length`;
     g.need(n);
-    g.line(`buf.set(${bytes}, ${g.at()});`);
+    g.write(`buf.set(${bytes}, ${g.at()});`);
     g.skip(n);
   }
 }
