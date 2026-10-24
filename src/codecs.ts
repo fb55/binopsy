@@ -694,6 +694,16 @@ class Str extends Codec<string> {
       writeFirst(g, value, length);
       return;
     }
+    if (
+      g.mode === "size" &&
+      !this.terminated &&
+      !(length instanceof Codec) &&
+      length !== Infinity
+    ) {
+      // Its length, whatever its text's.
+      g.skip(readLength(g, length, unit));
+      return;
+    }
     const size = g.callback(textSize, value, JSON.stringify(this.encoding));
     const t = terminator === undefined ? 0 : unit;
     if (this.terminated) {
@@ -1076,6 +1086,11 @@ class Sized extends Codec {
           );
         }
       }
+      return;
+    }
+    if (g.mode === "size" && length !== Infinity) {
+      // The region's size, whatever its value's.
+      g.skip(readLength(g, length));
       return;
     }
     g.flush();

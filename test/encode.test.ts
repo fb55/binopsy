@@ -70,6 +70,18 @@ describe("Sizes", () => {
     ).toBe(3);
     expect(calls).toBe(0);
     expect(codec.encode(value)).toHaveLength(7);
+    // Regions and strings of lengths from fields take those lengths.
+    const throws = map(bytes(Infinity), {
+      decode: (b) => b,
+      encode: (_b: Uint8Array): Uint8Array => {
+        throw new Error("encoded");
+      },
+    });
+    const lengths = bin()
+      .u8("n")
+      .field("x", sized("n", throws))
+      .field("s", string("n", { encoding: "ascii" }));
+    expect(lengths.sizeOf({ n: 3, x: new Uint8Array(3), s: "é" })).toBe(7);
     // Lengths are checked: a negative one would take bytes off later fields.
     const negative = bin()
       .field(
