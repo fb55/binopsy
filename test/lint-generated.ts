@@ -24,11 +24,11 @@ if (import.meta.main) {
   });
   await tests.close();
   // The generator does not track which variables and code are used (unused
-  // ones, code after a failure, and resumable decoders that never wait are
-  // left in), and arrays of known lengths are allocated at once.
+  // and unassigned ones, code after a failure, and resumable decoders that
+  // never wait are left in), and arrays of known lengths are allocated at once.
   const rules = [
     "-A all -D correctness -D perf",
-    "-A no-unused-vars -A no-unreachable -A require-yield",
+    "-A no-unused-vars -A no-unassigned-vars -A no-unreachable -A require-yield",
     "-A unicorn/no-new-array",
   ].join(" ");
   const lint = spawnSync("oxlint", [...rules.split(" "), out], {
