@@ -140,7 +140,7 @@ export class Gen {
   /** When the variables of fields of merged matches hold them (those of other cases do not). */
   readonly present = new Map<string, string>();
   /** The object holding the fields around the parser, if it gets them. */
-  readonly scope: string | undefined;
+  scope: string | undefined;
   /** The field being emitted (for errors). */
   field: string | undefined;
   /** Variables of the array indexes inside the field. */
@@ -205,6 +205,23 @@ export class Gen {
    */
   traced(mark: string): void {
     if (mark) this.line(`cur.tracePath.length = ${mark};`);
+  }
+
+  /**
+   * Emits code that sees no fields around it, as a function of its own that
+   * reads none does not.
+   *
+   * @param emit Emits the code.
+   */
+  isolated(emit: () => void): void {
+    const { fields, scope } = this;
+    this.fields = new Map();
+    this.scope = undefined;
+    try {
+      emit();
+    } finally {
+      Object.assign(this, { fields, scope });
+    }
   }
 
   /**

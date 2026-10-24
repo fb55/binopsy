@@ -103,6 +103,26 @@ describe("Sizes", () => {
       );
     expect(deferred.sizeOf(input)).toBe(5);
     expect(deferred.encode(input)).toHaveLength(5);
+    // Defaults depend on the fields the function encoding the value sees.
+    const choice = match(
+      (o: unknown) => typeof o === "object" && o !== null && "tag" in o,
+    )
+      .case(false, literal(u8, 3))
+      .case(true, literal(u8, 5));
+    for (const [n, wire] of [
+      [lazy(() => choice), "01 05"],
+      [
+        sized(
+          1,
+          lazy(() => choice),
+        ),
+        "01 03",
+      ],
+    ] as const) {
+      expect(
+        bin().u8("tag").field("n", n).encode({ tag: 1, n: undefined }),
+      ).toStrictEqual(hex(wire));
+    }
     // Values given are not filled in, so selectors run once.
     let selected = 0;
     const once = sized(1, match(() => ++selected).case(1, literal(u8, 3)));

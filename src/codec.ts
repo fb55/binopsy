@@ -7,6 +7,7 @@
  */
 import {
   compile,
+  scoped,
   type Decoder as Compiled,
   type Encoder,
   type Gen,
@@ -488,6 +489,20 @@ export function fillIn(g: Gen, codec: AnyCodec, value: string): void {
   } else {
     codec.emitFill(g, value);
   }
+}
+
+/**
+ * Emits code filling in an omitted value with the default `codec` gives, as
+ * the function `codec` is encoded by sees the fields around it.
+ *
+ * @param g The generator of the function.
+ * @param codec The codec of the value, encoded by a function of its own.
+ * @param value The variable holding the value.
+ * @internal
+ */
+export function fillCalled(g: Gen, codec: AnyCodec, value: string): void {
+  if (scoped(codec)) codec.emitFill(g, value);
+  else g.isolated(() => codec.emitFill(g, value));
 }
 
 /**

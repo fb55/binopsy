@@ -1,6 +1,7 @@
 /** Codecs built from others: bytes, strings, arrays, regions, conversions, checks and optional values. */
 import {
   Codec,
+  fillCalled,
   fillIn,
   writeValue,
   type AnyCodec,
@@ -1021,7 +1022,7 @@ class Sized extends Codec {
   }
 
   override emitFill(g: Gen, value: string): void {
-    this.inner.emitFill(g, value);
+    fillCalled(g, this.inner, value);
   }
 
   emitRead(g: Gen, wanted: boolean): string {
@@ -1052,7 +1053,7 @@ class Sized extends Codec {
 
   emitWrite(g: Gen, value: string): void {
     // Its value's default is in the fields after it.
-    this.inner.emitFill(g, value);
+    this.emitFill(g, value);
     const { length } = this;
     if (length instanceof Codec) {
       // The size, read before the value, is written once the value is.
@@ -1460,7 +1461,7 @@ class Lazy extends Codec {
   }
 
   override emitFill(g: Gen, value: string): void {
-    this.visit(() => this.target.emitFill(g, value));
+    this.visit(() => fillCalled(g, this.target, value));
   }
 
   /**
