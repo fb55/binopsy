@@ -1,7 +1,57 @@
 import { describe, expect, it } from "vitest";
 
-import { bin, bytes, custom, map, sized, u32le, u8 } from "../src/index.ts";
+import {
+  array,
+  bin,
+  bytes,
+  custom,
+  map,
+  refine,
+  sized,
+  string,
+  u32le,
+  u8,
+  when,
+} from "../src/index.ts";
 import { hex } from "./helpers.ts";
+
+describe("Sizes", () => {
+  it("skip the checks of encoding, and items of fixed sizes", () => {
+    let calls = 0;
+    const count =
+      <T>(result: T) =>
+      (): T => {
+        calls++;
+        return result;
+      };
+    const codec = bin()
+      .u8("n")
+      .field("a", refine(bytes("n"), count(true)))
+      .field("b", bytes(count(1)))
+      .field("c", when(count(true), u8))
+      .field("d", array(u8, { until: count(true) }))
+      .field("e", array(string(u8), { until: count(true) }))
+      .field(
+        "f",
+        array(
+          map(bytes(0), { decode: count(0), encode: count(new Uint8Array()) }),
+          u8,
+        ),
+      );
+    const value = {
+      n: 1,
+      a: hex("01"),
+      b: hex("02"),
+      c: 3,
+      d: [0],
+      e: [""],
+      f: [0, 0],
+    };
+    expect(codec.sizeOf(value)).toBe(7);
+    expect(calls).toBe(0);
+    expect(codec.encode(value)).toHaveLength(7);
+  });
+});
 
 describe("Encoding", () => {
   it("returns views of shared buffers that are never overwritten", () => {

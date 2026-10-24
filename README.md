@@ -273,7 +273,7 @@ WritableChunk.encode({ type: "IEND", data: new Uint8Array(0) });
 - `.computed(name, f)` computes one field; `.computed({ … })` several, each from the value without the computed fields. Like every method, it returns a new parser (to which no fields can be added); `Chunk` is unchanged.
 - Values are checked: numbers must fit, arrays and bytes must have their length, and text must fit its string. Failures throw an `EncodeError` with the path of the field: a `name` of 300 bytes gives `` expected u8, got 300 in `name` ``.
 - `encodeInto(value, bytes, offset?)` writes to a buffer you have, and returns the offset after the value. If it fails, it may have written part of the value.
-- `sizeOf(value)` is the number of bytes of `value`, without encoding it (`custom` codecs are encoded, unless they have a `size`). It does not check the value.
+- `sizeOf(value)` is the number of bytes of `value`, without encoding it (`custom` codecs are encoded, unless they have a `size`). It skips the checks of encoding, which may still fail.
 
 ## Recursive structures
 

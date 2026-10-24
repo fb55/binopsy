@@ -50,7 +50,7 @@ Formats keep their bytes with the rewrites below (except where noted), but not t
 
 - Types: the decoded and encoded values are inferred (`Output<typeof parser>`, `Input<typeof parser>`); lengths, tags and functions are checked against the fields before them, and editors complete the names of fields.
 - `parser.pick(...fields)` decodes some fields and steps over the others; `Reader` decodes consecutive values.
-- `codec.sizeOf(value)` computes the size of a value without encoding it.
+- `codec.sizeOf(value)` computes the size of a value without encoding it (`custom` codecs are encoded, unless they have a `size`).
 - `trace(codec, bytes)` returns where each field of a value is, with its value.
 - `.skip(n)` steps over reserved bytes (0.0.0 did not support `.skip`), and `.align(n)` over those up to a multiple of `n` bytes from the start of the parser.
 - Computed fields (`.computed`) and literals may be omitted when encoding; counts read before a value are written from it (also the size of a region, after it).

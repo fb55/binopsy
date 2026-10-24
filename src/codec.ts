@@ -159,8 +159,8 @@ export abstract class Codec<O = unknown, I = O, Ctx = unknown> {
 
   /**
    * The number of bytes `value` encodes to, computed without encoding it
-   * (but for `custom` codecs of no fixed size, which are encoded). It does
-   * not check the value: encoding may still fail.
+   * (but for `custom` codecs without a `size`, which are encoded). It skips
+   * the checks of encoding: encoding may still fail.
    *
    * @param value The value to measure.
    * @returns The number of bytes.
@@ -263,14 +263,14 @@ export function trace(
   return cur.trace;
 }
 
+/** The buffer of writers that only size values. */
+const NOTHING = new Uint8Array(0);
+
 /**
  * The bytes last viewed, and their view: values are often read from (or
  * written to) the same bytes, and views are slow to create. They are kept
  * until the current job ends (a `WeakMap` would cost more than it saves).
  */
-/** The buffer of writers that only size values. */
-const NOTHING = new Uint8Array(0);
-
 let last: Uint8Array | undefined;
 let lastView: DataView | undefined;
 

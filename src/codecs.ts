@@ -170,6 +170,7 @@ function writeLength(
     length.emitWrite(g, v);
     return;
   }
+  if (g.mode === "size") return;
   const expected =
     typeof length === "number" ? String(length) : given(g, length);
   g.check(
@@ -904,7 +905,8 @@ class List extends Codec<unknown[]> {
       `"expected an array, got " + String(${value})`,
     );
     const count = g.let(`${value}.length`);
-    if (typeof length === "object" && "until" in length) {
+    const terminated = typeof length === "object" && "until" in length;
+    if (terminated && g.mode !== "size") {
       // The last item, and only it, must end the array.
       g.check(`${count} === 0`, "invalid", '"needs an item ending it"');
       g.loop(count, (i) => {
@@ -919,10 +921,10 @@ class List extends Codec<unknown[]> {
       });
       return;
     }
-    writeLength(g, length, count, "items");
+    if (!terminated) writeLength(g, length, count, "items");
     const each = Number.isFinite(item.size) ? item.size : 0;
-    if (g.mode === "size" && each) {
-      g.skip(`${count} * ${each}`);
+    if (g.mode === "size" && Number.isFinite(item.size)) {
+      g.skip(each ? `${count} * ${each}` : 0);
     } else if (item instanceof Primitive) {
       // Numbers: room for all of them first.
       const size = `${count} * ${item.size}`;
@@ -1205,11 +1207,13 @@ class Refine extends Wrapper {
   }
 
   emitWrite(g: Gen, value: string): void {
-    g.check(
-      `!${g.callback(this.test, value)}`,
-      "invalid",
-      JSON.stringify(this.message),
-    );
+    if (g.mode !== "size") {
+      g.check(
+        `!${g.callback(this.test, value)}`,
+        "invalid",
+        JSON.stringify(this.message),
+      );
+    }
     this.inner.emitWrite(g, value);
   }
 }
@@ -1345,7 +1349,7 @@ class Presence extends Codec {
     const present = g.let(`${value} !== null`);
     if (this.flag) {
       this.flag.emitWrite(g, g.let(`${present} ? 1 : 0`, "let"));
-    } else {
+    } else if (g.mode !== "size") {
       const holds = this.holds(g);
       g.check(
         `Boolean(${holds}) !== ${present}`,
