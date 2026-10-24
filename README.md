@@ -298,7 +298,7 @@ const Tree: Codec<Tree> = bin()
   );
 ```
 
-- `lazy(() => codec)` is a codec defined later, or the one being defined.
+- `lazy(() => codec)` is a codec defined later, or the one being defined. It sees no fields around it: functions in it get only the fields of its own parsers.
 - TypeScript cannot infer the type of a value that refers to itself: annotate it, as `Codec<Tree>`.
 
 ## Custom encodings, such as varints

@@ -208,17 +208,17 @@ export class Gen {
   }
 
   /**
-   * Emits code that sees no fields around it, as a function of its own that
-   * reads none does not.
+   * Emits code that sees no fields around it.
    *
    * @param emit Emits the code.
+   * @returns What `emit` returns.
    */
-  isolated(emit: () => void): void {
+  isolated<T>(emit: () => T): T {
     const { fields, scope } = this;
     this.fields = new Map();
     this.scope = undefined;
     try {
-      emit();
+      return emit();
     } finally {
       Object.assign(this, { fields, scope });
     }
