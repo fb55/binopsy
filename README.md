@@ -510,7 +510,7 @@ Computed fields: with an object of functions, `.computed({ size: …, count: …
 
 ### Streams
 
-`decodeStream(codec, source)` returns an async iterator of the values. Calls of `next` run one after the other. `return()` ends the iteration at once, and closes the source once a pending read of it settles. Errors of the source are thrown as they are.
+`decodeStream(codec, source)` returns an async iterator of the values. Calls of `next` run one after the other. `return()` ends the iteration at once, and closes the source (a pending `next` then gives no value). Errors of the source are thrown as they are.
 
 Every value must take at least one byte. A value that reads up to the end of the input, such as `bytes(Infinity)`, ends with the stream. `bytes` values stay valid as long as the source does not reuse its chunks. A value spanning chunks is collected in a buffer of its own (holding the rest of the input, for a value that reads up to its end). Functions in a value may run twice, as it is first decoded as if its chunk held all of it.
 
@@ -530,7 +530,7 @@ An `EncodeError` has a `path`, a `detail` and a `cause`, but no `code` or offset
 
 - `Output<typeof codec>` is the type of decoded values, `Input<typeof codec>` that of encoded ones.
 - `Codec<O, I>` is the type of codecs; `Bin<T, I>` that of parsers, and `Struct<T, I>` that of parsers adding no more fields (computing some, or picking some).
-- `Context<typeof codec>` is the type of the fields a codec reads around it. A codec reading such fields (e.g. `bytes("length")`) only decodes and encodes in a parser that has them: `decode`, `encode`, `Reader` and streams take codecs that read none.
+- `Context<typeof codec>` is the type of the fields a codec reads around it. A codec reading such fields (e.g. `bytes("length")`) only decodes and encodes in a parser that has them: `decode`, `encode`, `sizeOf`, `trace`, `Reader` and streams take codecs that read none.
 - `AnyCodec` and `AnyBin` accept any codec and any parser, in generic functions.
 - Options and parts: `BinOptions`, `StringOptions`, `TerminatedStringOptions`, `Encoding`, `Length`, `CustomOptions`, `DecodeResult` and `Path`.
 

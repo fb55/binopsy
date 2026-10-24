@@ -219,7 +219,7 @@ describe("Streams", () => {
     expect(returned).toBe(1);
   });
 
-  it("close sources that settle a pending read when returned", async () => {
+  it("close their source when returned, without waiting for a pending read", async () => {
     let release!: () => void;
     let returned = 0;
     const source: AsyncIterator<Uint8Array> & AsyncIterable<Uint8Array> = {
@@ -228,11 +228,10 @@ describe("Streams", () => {
       },
       next: () =>
         new Promise((resolve) => {
-          release = () => resolve({ value: undefined, done: true });
+          release = () => resolve({ value: Uint8Array.of(7), done: false });
         }),
       return: async () => {
         returned++;
-        release();
         return { value: undefined, done: true };
       },
     };
@@ -243,11 +242,13 @@ describe("Streams", () => {
       value: undefined,
       done: true,
     });
+    expect(returned).toBe(1);
+    // The read settles later, and its value is dropped.
+    release();
     await expect(pending).resolves.toStrictEqual({
       value: undefined,
       done: true,
     });
-    expect(returned).toBe(1);
   });
 
   it("share closing their source between concurrent returns", async () => {
