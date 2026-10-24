@@ -2,24 +2,34 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { runInNewContext } from "node:vm";
+import { createContext, runInContext, runInNewContext } from "node:vm";
+import { crc32 } from "node:zlib";
 
 import { describe, expect, it } from "vitest";
 
-import { array, bin, custom, string, type Codec } from "../src/index.ts";
+import {
+  array,
+  bin,
+  bytes,
+  custom,
+  match,
+  sized,
+  string,
+  u16be,
+  u8,
+  type Codec,
+} from "../src/index.ts";
 import { node } from "./helpers.ts";
 
 describe("Examples", () => {
+  const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
+  const varint = readme
+    .slice(readme.indexOf("// Variable-length integers"))
+    .split("```")[0]
+    .replace("encode(value: number)", "encode(value)");
+
   it("decode and encode u32 values with the varint of the README, and reject others", () => {
-    const readme = readFileSync(
-      new URL("../README.md", import.meta.url),
-      "utf8",
-    );
-    const example = readme
-      .slice(readme.indexOf("// Variable-length integers"))
-      .split("```")[0]
-      .replace("encode(value: number)", "encode(value)");
-    const codec = runInNewContext(`${example}\nvarint`, {
+    const codec = runInNewContext(`${varint}\nvarint`, {
       custom,
       Uint8Array,
     }) as Codec<number>;
@@ -28,12 +38,6 @@ describe("Examples", () => {
     );
     expect(codec.encode(0xffffffff)).toStrictEqual(
       Uint8Array.of(255, 255, 255, 255, 15),
-    );
-    const Entry = bin()
-      .field("key", string(codec))
-      .field("values", array(codec, codec));
-    expect(Entry.encode({ key: "id", values: [1, 300] })).toStrictEqual(
-      Uint8Array.of(2, 105, 100, 2, 1, 172, 2),
     );
     expect(() => codec.decode(Uint8Array.of(255, 255, 255, 255, 127))).toThrow(
       /exceeds u32/u,
@@ -48,6 +52,51 @@ describe("Examples", () => {
         ),
       ).toThrow(/unsigned 32-bit/u);
     }
+  });
+
+  it("encode to the bytes the README shows", () => {
+    const context = createContext({
+      array,
+      bin,
+      bytes,
+      crc32,
+      custom,
+      match,
+      sized,
+      string,
+      u16be,
+      u8,
+      Uint8Array,
+    });
+    runInContext(varint, context);
+    for (const name of [
+      "Chunk",
+      "Message",
+      "Frame",
+      "WritableChunk",
+      "Entry",
+    ]) {
+      const declaration = new RegExp(
+        String.raw`^const ${name} = [\s\S]*?;(?: //.*)?$`,
+        "mu",
+      ).exec(readme);
+      runInContext(declaration![0], context);
+    }
+    const examples = readme.matchAll(
+      /^(?<call>\w+\.encode\(.*\));(?: |\n)\/\/ Uint8Array (?<shown>\[[\d, ]+\])/gmu,
+    );
+    const outputs = [...examples].map((example) => {
+      const { call, shown } = example.groups as Record<
+        "call" | "shown",
+        string
+      >;
+      return [
+        [...(runInContext(call, context) as Uint8Array)],
+        JSON.parse(shown) as number[],
+      ];
+    });
+    expect(outputs).toHaveLength(3);
+    for (const [actual, shown] of outputs) expect(actual).toStrictEqual(shown);
   });
 
   it("pack a file into a tar archive with a valid checksum, and list it", () => {

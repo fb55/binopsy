@@ -183,7 +183,7 @@ describe("Regions", () => {
 });
 
 describe("Lengths", () => {
-  it("must be safe integers when multiplied by item sizes", () => {
+  it("must be safe integers when multiplied by item sizes, and at most 2^32 - 1 items", () => {
     expect(() => array(bytes(2), Number.MAX_SAFE_INTEGER)).toThrow(
       /safe integer/u,
     );
@@ -194,6 +194,10 @@ describe("Lengths", () => {
         .pick()
         .decode(new Uint8Array()),
     ).toStrictEqual({});
+    // Arrays of them have at most 2^32 - 1.
+    expect(() => array(bytes(0), 2 ** 32 + 1).decode(new Uint8Array())).toThrow(
+      decodeError({ code: "invalid", message: /more than 2\^32 - 1 items/u }),
+    );
   });
 
   it("must be safe integers when decoding, also in streams and readers", async () => {
