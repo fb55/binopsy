@@ -265,6 +265,7 @@ class Values<O> implements AsyncIterableIterator<O, undefined> {
     this.base += cur.end - this.taken;
     this.use(this.chunk, this.chunk.length);
     cur.offset = this.taken - after;
+    this.own = EMPTY;
     this.chunk = EMPTY;
     this.taken = 0;
   }
