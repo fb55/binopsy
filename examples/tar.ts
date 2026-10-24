@@ -20,6 +20,7 @@ import {
   bytes,
   decodeStream,
   map,
+  sized,
   string,
   type Codec,
   type Input,
@@ -35,7 +36,8 @@ import {
 function octal(length: number, end = "\0"): Codec<number> {
   return map(bytes(length), {
     // The zero blocks that end an archive hold no digits.
-    decode: (digits) => Number.parseInt(String.fromCharCode(...digits), 8) || 0,
+    decode: (digits) =>
+      digits[0] === 0 ? 0 : Number.parseInt(String.fromCharCode(...digits), 8),
     encode: (value: number) =>
       Uint8Array.from(
         value.toString(8).padStart(length - end.length, "0") + end,
@@ -43,14 +45,6 @@ function octal(length: number, end = "\0"): Codec<number> {
       ),
   });
 }
-
-/**
- * The number of bytes padding `size` bytes to whole blocks of 512 bytes.
- *
- * @param size The size of the data in bytes.
- * @returns The number of bytes, from 0 to 511.
- */
-const padding = (size: number): number => (512 - (size % 512)) % 512;
 
 /** A header block (512 bytes), followed by the data, padded to whole blocks. */
 export const Entry = bin()
@@ -71,15 +65,11 @@ export const Entry = bin()
   .field("devminor", octal(8))
   .field("prefix", string(155, { terminator: 0 })) // The directories of `name`, if they do not fit in it
   .field("unused", bytes(12))
-  .field("data", bytes("size"))
   .field(
-    "padding",
-    bytes((entry) => padding(entry.size)),
+    "data", // Padded to whole blocks
+    sized((entry) => Math.ceil(entry.size / 512) * 512, bytes("size")),
   )
-  .computed({
-    size: (entry) => entry.data.length,
-    padding: (entry) => new Uint8Array(padding(entry.data.length)),
-  });
+  .computed({ size: (entry) => entry.data.length });
 
 /**
  * The bytes of an entry; the checksum is the sum of the header's bytes, with
@@ -134,20 +124,25 @@ function* tarball(paths: string[]): Generator<Uint8Array> {
   yield new Uint8Array(1024);
 }
 
-const [command, archive, ...paths] = process.argv.slice(2);
-if (command === "pack") {
-  writeFileSync(archive, Buffer.concat([...tarball(paths)]));
-} else if (command === "list") {
-  for await (const entry of decodeStream(Entry, createReadStream(archive))) {
-    if (entry.name) {
-      console.log(
-        entry.type,
-        entry.size,
-        entry.prefix ? `${entry.prefix}/${entry.name}` : entry.name,
-      );
+// When run, not imported.
+if (import.meta.main) {
+  const [command, archive, ...paths] = process.argv.slice(2);
+  if (command === "pack") {
+    writeFileSync(archive, Buffer.concat([...tarball(paths)]));
+  } else if (command === "list") {
+    for await (const entry of decodeStream(Entry, createReadStream(archive))) {
+      if (entry.name) {
+        console.log(
+          entry.type,
+          entry.size,
+          entry.prefix ? `${entry.prefix}/${entry.name}` : entry.name,
+        );
+      }
     }
+  } else {
+    console.error(
+      "usage: node examples/tar.ts pack|list <archive.tar> [paths…]",
+    );
+    process.exitCode = 1;
   }
-} else {
-  console.error("usage: node examples/tar.ts pack|list <archive.tar> [paths…]");
-  process.exitCode = 1;
 }
