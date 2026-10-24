@@ -1,0 +1,67 @@
+research/closure-study/objects.json
+  s_583f8f57f6310f::t_ef805231e8bea5 1-578
+research/closure-study/initial.json
+  s_583f8f57f6310f::t_e6dcfa01f0d9f7 1-187
+research/closure-study/lab.py
+  s_583f8f57f6310f::t_650f00d41825de 1-12
+research/closure-study/profile.ts
+  s_583f8f57f6310f::t_d26de897eeae4f 1-16
+research/closure-study/inlining-excerpt.txt
+  s_583f8f57f6310f::t_a271bc7994f225 1-27
+research/closure-study/csp.ts
+  s_583f8f57f6310f::t_e1d7c08dca81c1 1-21
+research/closure-study/report.html
+  s_583f8f57f6310f::t_bafe51471cca86 1-20
+research/closure-study/ab.py
+  s_583f8f57f6310f::t_e6dcfa01f0d9f7 1-27
+research/closure-study/legacy.py
+  s_583f8f57f6310f::t_4c80da6f7d6c86 1-18
+research/closure-study/validate.ts
+  s_583f8f57f6310f::t_e6dcfa01f0d9f7 1-56
+research/closure-study/closure.ts
+  s_583f8f57f6310f::t_5bddb5e48da5ee 137,139-140,156
+  s_583f8f57f6310f::t_01857ba60a803e 1-136,138,141-155,157-298
+research/closure-study/tsconfig.json
+  s_583f8f57f6310f::t_4c80da6f7d6c86 1-5,7-13
+  s_583f8f57f6310f::t_c2a4d27379fa4e 6
+research/closure-study/object-lab.mjs
+  s_583f8f57f6310f::t_650f00d41825de 1-38
+research/closure-study/v8-debug.txt
+  s_583f8f57f6310f::t_69fcf7fda40ef2 6-258
+  s_583f8f57f6310f::t_6033fbc5deb587 1-5,259-336
+research/closure-study/bench.ts
+  s_583f8f57f6310f::t_5bddb5e48da5ee 1-72,74-83,85-139
+  s_583f8f57f6310f::t_d26de897eeae4f 73,84
+research/closure-study/REPORT.txt
+  s_583f8f57f6310f::t_93782403d5adc2 1-333
+research/closure-study/sensitivity-all.json
+  s_583f8f57f6310f::t_d7d8e4c3a5dd6f 1-412
+research/closure-study/legacy.mjs
+  s_583f8f57f6310f::t_4c80da6f7d6c86 1-23
+research/closure-study/confirm.py
+  s_583f8f57f6310f::t_040957c3914cbb 1-30
+research/closure-study/final.json
+  s_583f8f57f6310f::t_39f8eb7b20477c 1-257
+research/closure-study/legacy.json
+  s_583f8f57f6310f::t_d0d1e67f2156ca 1-34
+research/closure-study/profile-summary.txt
+  s_583f8f57f6310f::t_f4eece91dde163 1-43
+research/closure-study/v8-debug.mjs
+  s_583f8f57f6310f::t_b9c5b36aed1500 1-17
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "458d9db928412e01fc52a6eb5ae41665b93a4abf",
+  "prompts": {},
+  "sessions": {
+    "s_583f8f57f6310f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a16e36-3aaa-7972-87f2-d0f2ce34fb61",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Felix Boehm <188768+fb55@users.noreply.github.com>"
+    }
+  }
+}
