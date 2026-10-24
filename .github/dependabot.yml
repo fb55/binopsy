@@ -1,12 +1,18 @@
 version: 2
 updates:
-    - package-ecosystem: npm
-      directory: "/"
-      schedule:
-          interval: daily
-      open-pull-requests-limit: 10
-      versioning-strategy: increase
-    - package-ecosystem: "github-actions"
-      directory: "/"
-      schedule:
-          interval: daily
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: daily
+    open-pull-requests-limit: 10
+    versioning-strategy: increase
+    # Packages released together, which depend on each other's versions.
+    groups:
+      oxc:
+        patterns: ["oxlint", "oxlint-tsgolint", "oxfmt"]
+      vitest:
+        patterns: ["vitest", "@vitest/*"]
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: daily
