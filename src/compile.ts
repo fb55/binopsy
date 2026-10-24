@@ -130,8 +130,12 @@ export function compile(
 
 const NEGATIVE_ZERO = Symbol("-0");
 
-/** Fields read or written together, with the offset each ends at. */
-export type Run = readonly (readonly [name: string, end: number])[];
+/** Fields read together, with the offsets each starts and ends at (bit fields may share bytes). */
+export type Run = readonly (readonly [
+  name: string,
+  start: number,
+  end: number,
+])[];
 
 export class Gen {
   readonly mode: Mode;
@@ -306,7 +310,7 @@ export class Gen {
    * fields they belong to, for errors.
    *
    * @param n The number of bytes, or an expression of it.
-   * @param run The fields of the bytes, with the offsets they end at.
+   * @param run The fields of the bytes, with the offsets they start and end at.
    */
   need(n: number | string, run?: Run): void {
     if (this.mode === "size") return;
@@ -740,14 +744,12 @@ function runEnded(
   run: Run,
   path: Path,
 ): DecodeError {
-  let from = start;
-  for (const [name, until] of run) {
+  for (const [name, from, until] of run) {
     if (start + until > end) {
-      return ended(from, start + until, end, [...path, name]);
+      return ended(start + from, start + until, end, [...path, name]);
     }
-    from = start + until;
   }
-  return ended(start, start + run.at(-1)![1], end, path);
+  return ended(start, start + run.at(-1)![2], end, path);
 }
 
 function encodeFailed(detail: string, path: Path): EncodeError {

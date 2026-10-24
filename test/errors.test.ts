@@ -27,6 +27,16 @@ const fails = () => {
 };
 
 describe("Decoding errors", () => {
+  it.each(["msb", "lsb"] as const)(
+    "are located in bit fields sharing bytes, %s first",
+    (bitOrder) =>
+      decodeFails(
+        bin({ bitOrder }).u8("head").bits("a", 4).bits("b", 12),
+        "09 01",
+        { code: "end-of-input", path: ["b"], offset: 1 },
+      ),
+  );
+
   it.each<[name: string, codec: Standalone, bytes: string, failure: Failure]>([
     [
       "are located in the first field",

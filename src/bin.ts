@@ -807,10 +807,11 @@ class Parser extends Codec<Obj> {
     output: ReadonlySet<string>,
   ): number {
     const fields = bitRun(this.entries, i);
-    // The byte each field ends in, for errors.
+    // The bytes each field starts and ends in, for errors.
     let end = 0;
-    const ends = fields.map(({ name, width }): [string, number] => [
+    const ends = fields.map(({ name, width }): [string, number, number] => [
       name,
+      Math.floor(end / 8),
       Math.ceil((end += width) / 8),
     ]);
     const bytes = Math.ceil(end / 8);
@@ -1279,20 +1280,20 @@ function extract(
  *
  * @param entries The entries of a parser.
  * @param i The index of the first field.
- * @returns The number of bytes, and the fields with the offsets they end at.
+ * @returns The number of bytes, and the fields with the offsets they start and end at.
  */
 function run(
   entries: readonly Entry[],
   i: number,
-): [number, [string, number][]] {
-  const ends: [string, number][] = [];
+): [number, [string, number, number][]] {
+  const fields: [string, number, number][] = [];
   let end = 0;
   for (let j = i; j < entries.length; j++) {
     const entry = entries[j];
     if (entry.kind !== "field" || !Number.isFinite(entry.codec.size)) break;
-    ends.push([entry.name, (end += entry.codec.size)]);
+    fields.push([entry.name, end, (end += entry.codec.size)]);
   }
-  return [end, ends];
+  return [end, fields];
 }
 
 for (const [name, codec] of Object.entries(primitives)) {
