@@ -1,0 +1,23 @@
+bench/compare/worker.mjs
+  s_5d2065b5ace670::t_644df664a82abd 115-118,120,123
+bench/compare/README.md
+  s_5d2065b5ace670::t_644df664a82abd 37-38
+bench/compare/extra.mjs
+  s_5d2065b5ace670::t_644df664a82abd 82-87,90
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b4661e62730ac2dd94d07972ed89e8d4a48d7cb5",
+  "prompts": {},
+  "sessions": {
+    "s_5d2065b5ace670": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a17005-48af-7e53-b7a5-a6c5e68e5a7f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Felix Boehm <188768+fb55@users.noreply.github.com>"
+    }
+  }
+}
