@@ -11,6 +11,7 @@ import {
   refine,
   sized,
   string,
+  u16le,
   u32le,
   u8,
   when,
@@ -72,6 +73,32 @@ describe("Sizes", () => {
     const value = { tag: 1 as const, data: new Uint8Array(3) };
     expect(codec.sizeOf(value)).toBe(5);
     expect(codec.encode(value)).toHaveLength(5);
+    // Also through regions and refinements, for functions of later fields.
+    const input = { tag: 1, n: undefined, data: new Uint8Array(3) };
+    const region = bin()
+      .u8("tag")
+      .field("n", sized(1, match("tag").case(1, literal(u8, 3))))
+      .field(
+        "data",
+        bytes((o) => o.n ?? 0),
+      );
+    expect(region.sizeOf(input)).toBe(5);
+    expect(region.encode(input)).toHaveLength(5);
+    const refined = refine(
+      match("tag")
+        .case(1, literal(u8, 3))
+        .otherwise(map(u8, { decode: () => undefined, encode: () => 0 })),
+      () => true,
+    );
+    const nested = bin()
+      .u8("tag")
+      .field("n", match("tag").case(1, refined).otherwise(literal(u16le, 3)))
+      .field(
+        "data",
+        sized((o) => o.n ?? 0, bytes(Infinity)),
+      );
+    expect(nested.sizeOf(input)).toBe(5);
+    expect(nested.encode(input)).toHaveLength(5);
   });
 });
 

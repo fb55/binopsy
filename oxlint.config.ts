@@ -52,7 +52,16 @@ export default defineConfig({
     ],
     "class-methods-use-this": [
       "error",
-      { exceptMethods: ["emitRead", "emitWrite", "emitBody", "preset"] },
+      {
+        exceptMethods: [
+          "emitRead",
+          "emitWrite",
+          "emitBody",
+          "preset",
+          "fills",
+          "emitFill",
+        ],
+      },
     ],
     "unicorn/catch-error-name": ["error", { name: "e" }],
     "unicorn/numeric-separators-style": [

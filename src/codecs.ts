@@ -14,6 +14,7 @@ import {
   type Reads,
 } from "./compile.ts";
 import { EncodeError } from "./errors.ts";
+import { fillIn } from "./match.ts";
 import { Primitive } from "./primitives.ts";
 
 /** The names of the fields of type `V` in every variant of `T`. (Mapping `keyof T & string` keeps it from mapping each variant.) */
@@ -1014,6 +1015,14 @@ class Sized extends Codec {
     return this.inner.preset;
   }
 
+  override fills(): boolean {
+    return this.inner.fills();
+  }
+
+  override emitFill(g: Gen, value: string): void {
+    this.inner.emitFill(g, value);
+  }
+
   emitRead(g: Gen, wanted: boolean): string {
     const n = readLength(g, this.length);
     g.need(n);
@@ -1041,6 +1050,8 @@ class Sized extends Codec {
   }
 
   emitWrite(g: Gen, value: string): void {
+    // Its value's default is in the fields after it.
+    this.inner.emitFill(g, value);
     const { length } = this;
     if (length instanceof Codec) {
       // The size, read before the value, is written once the value is.
@@ -1207,6 +1218,14 @@ class Refine extends Wrapper {
       at,
     );
     return wanted ? v : "";
+  }
+
+  override fills(): boolean {
+    return this.inner.preset !== undefined || this.inner.fills();
+  }
+
+  override emitFill(g: Gen, value: string): void {
+    fillIn(g, this.inner, value);
   }
 
   emitWrite(g: Gen, value: string): void {

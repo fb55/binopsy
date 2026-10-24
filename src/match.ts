@@ -157,16 +157,15 @@ export class Match extends Codec {
     this.default = otherwise;
   }
 
-  /**
-   * Whether a case fills in the value when it is omitted (as a literal does).
-   *
-   * @returns `true` if a case, or one of a nested match, has a default.
-   */
-  get fills(): boolean {
+  override fills(): boolean {
     return [...this.cases.map(([, codec]) => codec), this.default].some(
       (codec) =>
-        codec?.preset !== undefined || (codec instanceof Match && codec.fills),
+        codec !== undefined && (codec.preset !== undefined || codec.fills()),
     );
+  }
+
+  override emitFill(g: Gen, value: string): void {
+    if (this.fills()) this.emitSwitch(g, (codec) => fillIn(g, codec, value));
   }
 
   case(value: Value, codec: AnyCodec): Match {
@@ -202,10 +201,7 @@ export class Match extends Codec {
 
   emitWrite(g: Gen, value: string): void {
     this.emitSwitch(g, (codec) => {
-      const { preset } = codec;
-      if (preset) {
-        g.line(`if (${value} === undefined) ${value} = ${g.k(preset.value)};`);
-      }
+      if (codec.preset) fillIn(g, codec, value);
       write(g, codec, value);
     });
   }
@@ -245,20 +241,32 @@ export class Match extends Codec {
 }
 
 /**
+ * Emits code filling in an omitted value with the default `codec` gives.
+ *
+ * @param g The generator of the function.
+ * @param codec The codec of the value.
+ * @param value The variable holding the value.
+ */
+export function fillIn(g: Gen, codec: AnyCodec, value: string): void {
+  const { preset } = codec;
+  if (preset) {
+    g.line(`if (${value} === undefined) ${value} = ${g.k(preset.value)};`);
+  } else {
+    codec.emitFill(g, value);
+  }
+}
+
+/**
  * Emits code encoding `value` (in a variable, which later fields read); when
- * sizing a value of a fixed size, only its size, unless a match may fill in
- * the value's default.
+ * sizing a value of a fixed size, only its default and its size.
  *
  * @param g The generator of the function.
  * @param codec The codec of the value.
  * @param value The variable holding the value.
  */
 export function write(g: Gen, codec: AnyCodec, value: string): void {
-  if (
-    g.mode === "size" &&
-    Number.isFinite(codec.size) &&
-    !(codec instanceof Match && codec.fills)
-  ) {
+  if (g.mode === "size" && Number.isFinite(codec.size)) {
+    codec.emitFill(g, value);
     g.skip(codec.size);
   } else {
     codec.emitWrite(g, value);

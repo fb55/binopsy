@@ -68,6 +68,29 @@ export abstract class Codec<O = unknown, I = O, Ctx = unknown> {
   }
 
   /**
+   * Whether encoding fills in an omitted value with a default that depends
+   * on other fields (as a match of literals does), which `emitFill` emits.
+   *
+   * @returns `true` if it does.
+   * @internal
+   */
+  fills(): boolean {
+    return false;
+  }
+
+  /**
+   * Emits code filling in the value in variable `value` with its default, if
+   * it is omitted (only for codecs that `fills`).
+   *
+   * @param _g The generator of the function.
+   * @param _value The variable holding the value.
+   * @internal
+   */
+  emitFill(_g: Gen, _value: string): void {
+    // Most codecs have no such default.
+  }
+
+  /**
    * Emits code that reads a value and returns an expression for it, or, if
    * it is not `wanted`, steps over it (still running checks) and returns "".
    *
