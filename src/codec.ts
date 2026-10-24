@@ -197,6 +197,10 @@ export abstract class Codec<O = unknown, I = O, Ctx = unknown> {
     if (Number.isFinite(codec.size)) return codec.size;
     const w = new Writer(NOTHING);
     (codec.#sizer ??= compile(codec, "size"))(w, value);
+    // Sizes past it are rounded (and encoding fails).
+    if (!Number.isSafeInteger(w.offset)) {
+      throw new EncodeError("length exceeds the safe offset range");
+    }
     return w.offset;
   }
 

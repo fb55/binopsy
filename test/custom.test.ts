@@ -67,6 +67,18 @@ describe("Custom codecs", () => {
     expect(() => bin().field("n", wrong).sizeOf({ n: 1 })).toThrow(
       /size returned -1, not a size in `n`/u,
     );
+    // Sizes adding up past safe integers, as encoding would.
+    const counted = custom({
+      decode: () => undefined,
+      encode: (n: number) => new Uint8Array(n),
+      size: (n: number) => n,
+    });
+    expect(() =>
+      bin()
+        .field("n", counted)
+        .u8("a")
+        .sizeOf({ n: Number.MAX_SAFE_INTEGER, a: 0 }),
+    ).toThrow(/exceeds the safe offset range/u);
   });
 
   it("may decode undefined values", () => {
