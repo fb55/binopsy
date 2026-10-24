@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { stripVTControlCharacters } from "node:util";
 
 import { expect } from "vitest";
 
@@ -147,11 +148,14 @@ export function encodeFails(
  * Runs a Node.js process with `args`; returns its output.
  *
  * @param args The arguments of `node`.
- * @returns The standard output of the process, as text.
+ * @returns The standard output of the process, as plain text (also where
+ *   colors are forced, as in CI).
  */
 export function node(...args: string[]): string {
-  return execFileSync(process.execPath, args, {
-    encoding: "utf8",
-    timeout: 120_000,
-  });
+  return stripVTControlCharacters(
+    execFileSync(process.execPath, args, {
+      encoding: "utf8",
+      timeout: 120_000,
+    }),
+  );
 }
