@@ -8,12 +8,14 @@
  */
 import {
   createReadStream,
+  createWriteStream,
   readdirSync,
   readFileSync,
   statSync,
-  writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 
 import {
   bin,
@@ -128,7 +130,7 @@ function* tarball(paths: string[]): Generator<Uint8Array> {
 if (import.meta.main) {
   const [command, archive, ...paths] = process.argv.slice(2);
   if (command === "pack") {
-    writeFileSync(archive, Buffer.concat([...tarball(paths)]));
+    await pipeline(Readable.from(tarball(paths)), createWriteStream(archive));
   } else if (command === "list") {
     for await (const entry of decodeStream(Entry, createReadStream(archive))) {
       if (entry.name) {
