@@ -175,13 +175,35 @@ export class Gen {
    * Emits code recording where the current field is, when tracing.
    *
    * @param start An expression of its offset.
-   * @param v The variable holding its value.
+   * @param v The variable holding its value ("" if it is stepped over).
    * @param end An expression of the offset after it.
    */
   trace(start: string, v: string, end = this.at()): void {
     this.line(
-      `cur.trace.push({ path: ${this.path()}, start: ${start}, end: ${end}, value: ${v} });`,
+      `cur.trace.push({ path: ${this.path()}, start: ${start}, end: ${end}, value: ${v || "undefined"} });`,
     );
+  }
+
+  /**
+   * When tracing, the number of spans before those of a value decoded by a
+   * function of its own (whose paths are completed by `traced`).
+   *
+   * @returns The variable holding the number, or "" when not tracing.
+   */
+  mark(): string {
+    return this.mode === "trace" ? this.let("cur.trace.length") : "";
+  }
+
+  /**
+   * Puts the path of the current field before those of the spans traced
+   * since `mark`.
+   *
+   * @param mark The variable `mark` returned.
+   */
+  traced(mark: string): void {
+    if (mark) {
+      this.line(`${this.k(prefixed)}(cur.trace, ${mark}, ${this.path()});`);
+    }
   }
 
   /**
@@ -411,7 +433,7 @@ export class Gen {
         compile(codec, mode, arg === true ? "all" : "none", true),
       );
       v = this.let("undefined", "let");
-      const traced = mode === "trace" ? this.let("cur.trace.length") : "";
+      const mark = this.mark();
       this.line("cur.offset = o;");
       this.guard(
         `${v} = ${this.mode === "resume" ? "yield* " : ""}${fn}(cur${scope});`,
@@ -419,10 +441,7 @@ export class Gen {
       this.line(
         `o = cur.offset;${this.mode === "resume" ? ` ${this.reload()}` : ""}`,
       );
-      // The paths of the fields it traced are in the value.
-      if (traced) {
-        this.line(`${this.k(prefixed)}(cur.trace, ${traced}, ${this.path()});`);
-      }
+      this.traced(mark);
     }
     this.checked = 0;
     return arg === true ? v : "";

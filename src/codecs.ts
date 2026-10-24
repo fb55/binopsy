@@ -1019,7 +1019,8 @@ class Sized extends Codec {
     g.need(n);
     // The value may not read past the region, and the bytes it leaves are skipped.
     const codec = this.inner;
-    const fn = g.k(compile(codec, "decode", wanted ? "all" : "none", true));
+    const mode = g.mode === "trace" ? "trace" : "decode";
+    const fn = g.k(compile(codec, mode, wanted ? "all" : "none", true));
     const scope = scoped(codec) ? `, ${g.context(codec.reads)}` : "";
     g.flush();
     const [start, end, final, v] = [
@@ -1028,11 +1029,13 @@ class Sized extends Codec {
       g.let("cur.final"),
       g.let("undefined", "let"),
     ];
+    const mark = g.mark();
     g.line(`cur.offset = o; cur.end = o + ${n}; cur.final = true;`);
     g.guard(
       `${v} = ${fn}(cur${scope});`,
       `cur.end = ${end}; cur.final = ${final};`,
     );
+    g.traced(mark);
     g.seek(`${start} + ${n}`);
     return wanted ? v : "";
   }

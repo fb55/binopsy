@@ -37,6 +37,20 @@ describe("Traces", () => {
     ]);
     expect(spans.at(-1)!.value).toStrictEqual([{ kind: 1, name: "a" }]);
   });
+
+  it("locate fields in regions, and those stepped over", () => {
+    const parser = bin()
+      .u8("a")
+      .field("r", sized(1, bin().u8("b")))
+      .u8("c");
+    const spans = trace(parser.pick("r"), hex("01 02 03"));
+    expect(spans.map(({ path, value }) => [path, value])).toStrictEqual([
+      [["a"], undefined],
+      [["r", "b"], 2],
+      [["r"], { b: 2 }],
+      [["c"], undefined],
+    ]);
+  });
 });
 
 describe("Readers", () => {

@@ -1040,7 +1040,7 @@ function emitCases(
       g.line(`if (!(${when || "false"})) ${v} = ${around};`);
       const inherited = g.present.get(around);
       if (inherited === undefined) continue;
-      when = `${when} || (${inherited})`;
+      when = when ? `${when} || (${inherited})` : inherited;
     }
     g.present.set(v, when || "false");
   }
