@@ -35,9 +35,13 @@ import {
  */
 function octal(length: number, end = "\0"): Codec<number> {
   return map(bytes(length), {
-    // The zero blocks that end an archive hold no digits.
-    decode: (digits) =>
-      digits[0] === 0 ? 0 : Number.parseInt(String.fromCharCode(...digits), 8),
+    decode: (digits) => {
+      const text = String.fromCharCode(...digits);
+      // The zero blocks that end an archive hold no digits.
+      if (/^\0*$/u.test(text)) return 0;
+      if (!/^ *[0-7]+[ \0]*$/u.test(text)) throw new Error("invalid octal");
+      return Number.parseInt(text, 8);
+    },
     encode: (value: number) =>
       Uint8Array.from(
         value.toString(8).padStart(length - end.length, "0") + end,
