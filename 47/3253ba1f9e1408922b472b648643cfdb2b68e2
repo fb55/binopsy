@@ -1,0 +1,47 @@
+bench/compare/cold.mjs
+  s_2d33059a5c7ec6::t_cbf07b1a0aaf6a 1-46,48
+  s_2d33059a5c7ec6::t_c43fa78ba091d2 47
+bench/compare/scenarios.mjs
+  s_2d33059a5c7ec6::t_d3af7d2ae6fa0f 1-140
+bench/compare/schemas.mjs
+  s_2d33059a5c7ec6::t_f0969718abb810 1-79
+bench/compare/manual.mjs
+  s_2d33059a5c7ec6::t_d3af7d2ae6fa0f 1-319
+bench/compare/binopsy.mjs
+  s_2d33059a5c7ec6::t_f0969718abb810 14-16
+  s_2d33059a5c7ec6::t_d3af7d2ae6fa0f 1-13
+bench/compare/README.md
+  s_2d33059a5c7ec6::t_d3af7d2ae6fa0f 1-129
+bench/compare/package.json
+  s_2d33059a5c7ec6::t_d3af7d2ae6fa0f 1-18
+bench/compare/run.py
+  s_2d33059a5c7ec6::t_d3af7d2ae6fa0f 1-24,27-42,44-50,54-67,69-79,89-102
+  s_2d33059a5c7ec6::t_638a4435189eaf 25-26,43,51-53,68,80-88
+bench/compare/worker.mjs
+  s_2d33059a5c7ec6::t_d3af7d2ae6fa0f 1-150
+.gitignore
+  s_2d33059a5c7ec6::t_d3af7d2ae6fa0f 4
+bench/compare/extra.mjs
+  s_2d33059a5c7ec6::t_d3af7d2ae6fa0f 1-39,41-90,92-134
+  s_2d33059a5c7ec6::t_a3492bd1262e7e 40,91
+bench/compare/adapters.mjs
+  s_2d33059a5c7ec6::t_d3af7d2ae6fa0f 1-580
+bench/compare/package-lock.json
+  s_2d33059a5c7ec6::t_96b8b304abb7c0 1-382
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "473253ba1f9e1408922b472b648643cfdb2b68e2",
+  "prompts": {},
+  "sessions": {
+    "s_2d33059a5c7ec6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1706d-c199-70f0-ae76-bac067aa0b27",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Felix Boehm <188768+fb55@users.noreply.github.com>"
+    }
+  }
+}
