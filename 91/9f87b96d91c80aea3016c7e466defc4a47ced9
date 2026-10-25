@@ -1,0 +1,40 @@
+bench/compare/run.py
+  s_2d33059a5c7ec6::t_638a4435189eaf 26,44,55
+  s_2d33059a5c7ec6::t_d3af7d2ae6fa0f 51
+  s_2d33059a5c7ec6::t_aee9975402c9a1 35
+  s_2d33059a5c7ec6::t_1cc32b0f5920a5 24,77
+  s_2d33059a5c7ec6::t_02afeca282dd97 70
+  s_2d33059a5c7ec6::t_3aeef5107020ee 84-85,90
+  s_2d33059a5c7ec6::t_58f834feccde8d 20,50
+bench/compare/worker.mjs
+  s_2d33059a5c7ec6::t_02afeca282dd97 119
+  s_2d33059a5c7ec6::t_0c09e7c405e7ba 90-96
+  s_2d33059a5c7ec6::t_aee9975402c9a1 116-118,120-121
+bench/compare/README.md
+  s_2d33059a5c7ec6::t_9fe9bf67472453 157-158,166-167,181-182,266,269-284,286-291
+  s_2d33059a5c7ec6::t_06cf786ec88881 117,285
+  s_2d33059a5c7ec6::t_b054f451b24505 1-9,11-88,90-116,118-136,159-160,258
+  s_2d33059a5c7ec6::t_8ceb592fd22c62 10,89
+bench/compare/extra.mjs
+  s_2d33059a5c7ec6::t_aee9975402c9a1 108-109,111-112
+  s_2d33059a5c7ec6::t_d3af7d2ae6fa0f 10-30,38,42,62
+  s_2d33059a5c7ec6::t_02afeca282dd97 110
+bench/compare/cold.mjs
+  s_2d33059a5c7ec6::t_fafbaeb22515c0 28-46,50-54
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "919f87b96d91c80aea3016c7e466defc4a47ced9",
+  "prompts": {},
+  "sessions": {
+    "s_2d33059a5c7ec6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1706d-c199-70f0-ae76-bac067aa0b27",
+        "model": "gpt-6-astra"
+      },
+      "human_author": null
+    }
+  }
+}
