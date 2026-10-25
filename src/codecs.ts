@@ -263,6 +263,7 @@ const NodeBuffer = (globalThis as { Buffer?: NodeBuffer }).Buffer;
  * @param fallback The decoder to use where there are no `Buffer`s.
  * @returns A function calling the method on the bytes, or `fallback`.
  */
+/* @__NO_SIDE_EFFECTS__ */
 function decoder(
   method: keyof NodeBuffer["prototype"],
   fallback: Text["decode"],
@@ -279,6 +280,7 @@ function decoder(
  * @param mask The bits of a unit that are kept.
  * @returns The `decode` function of a `Text`.
  */
+/* @__NO_SIDE_EFFECTS__ */
 function fromCodes(size: 1 | 2, mask = 0xffff): Text["decode"] {
   return (buf, start, end) => {
     const codes = [];
@@ -314,14 +316,14 @@ function writeCodes(buf: Uint8Array, offset: number, text: string): number {
   return text.length;
 }
 
-const utf8Decoder = new TextDecoder("utf-8", { ignoreBOM: true });
-const utf8Encoder = new TextEncoder();
+const utf8 = /* @__PURE__ */ new TextDecoder("utf-8", { ignoreBOM: true });
+const utf8Encoder = /* @__PURE__ */ new TextEncoder();
 
 const texts: Record<Encoding, Text> = {
   utf8: {
     unit: 1,
     decode: decoder("utf8Slice", (buf, start, end) =>
-      utf8Decoder.decode(buf.subarray(start, end)),
+      utf8.decode(buf.subarray(start, end)),
     ),
     size: (text) => (NodeBuffer ? NodeBuffer.byteLength(text) : utf8Size(text)),
     write: (buf, offset, text) =>

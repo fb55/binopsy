@@ -369,7 +369,7 @@ export function bin(options: BinOptions = {}): unknown {
   if (order !== "msb" && order !== "lsb") {
     throw new TypeError(`invalid bit order ${String(order)}`);
   }
-  return new Parser([], order);
+  return new ParserWithNumbers([], order);
 }
 
 // Run time: a parser is a list of entries.
@@ -1299,10 +1299,13 @@ function run(
   return [end, fields];
 }
 
-for (const [name, codec] of Object.entries(primitives)) {
-  Object.defineProperty(Parser.prototype, name, {
-    value(this: Parser, field: string) {
-      return this.field(field, codec as AnyCodec);
-    },
-  });
-}
+const ParserWithNumbers = /* @__PURE__ */ (() => {
+  for (const [name, codec] of Object.entries(primitives)) {
+    Object.defineProperty(Parser.prototype, name, {
+      value(this: Parser, field: string) {
+        return this.field(field, codec as AnyCodec);
+      },
+    });
+  }
+  return Parser;
+})();

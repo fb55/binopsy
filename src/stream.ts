@@ -9,7 +9,7 @@ import { compile, type Decoder } from "./compile.ts";
 import { DecodeError, MORE, within } from "./errors.ts";
 
 const EMPTY = new Uint8Array(0);
-const DONE = Object.freeze({ value: undefined, done: true as const });
+const DONE = /* @__PURE__ */ Object.freeze({ value: undefined, done: true });
 
 type Chunks = AsyncIterator<Uint8Array> | Iterator<Uint8Array>;
 

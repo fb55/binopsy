@@ -298,11 +298,7 @@ export class Gen {
     return this.pos + k ? `o + ${this.pos + k}` : "o";
   }
 
-  /**
-   * The current read position within the DataView.
-   *
-   * @returns An offset relative to the slice or its backing buffer, by mode.
-   */
+  /** @returns The read position in the slice's or backing DataView, by mode. */
   viewAt(): string {
     return this.mode === "buffer" ? `${this.at()} + base` : this.at();
   }

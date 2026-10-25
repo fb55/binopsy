@@ -251,9 +251,8 @@ export type Context<C> = C extends {
 export type Obj = Record<string, unknown>;
 
 /**
- * A read position in `bytes`; compiled decoders read up to `end`.
- * If the input is not `final`, more of it may
- * follow (in a stream): decoders reaching its end throw `MORE`.
+ * A read position in `bytes`; decoders read up to `end`. If the input is not
+ * `final`, more may follow: decoders reaching its end throw `MORE`.
  */
 export interface Cursor {
   bytes: Uint8Array;
