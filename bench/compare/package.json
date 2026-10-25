@@ -1,0 +1,18 @@
+{
+  "name": "binopsy-comparison",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "bench": "python3 run.py"
+  },
+  "dependencies": {
+    "@pretendonetwork/binary-parser": "1.0.0",
+    "@solana/buffer-layout": "4.0.1",
+    "@solana/codecs": "8.5.0",
+    "binary-parser": "2.3.0",
+    "binary-parser-encoder": "1.5.3",
+    "micro-packed": "0.11.1",
+    "restructure": "3.0.2",
+    "typed-binary": "4.3.4"
+  }
+}
