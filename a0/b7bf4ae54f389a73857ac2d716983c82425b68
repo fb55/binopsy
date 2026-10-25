@@ -1,0 +1,26 @@
+package.json
+  s_9822029f13e609::t_77e2d5d2b14ec0 4,7,10-11,13,15-16,18-20
+README.md
+  s_9822029f13e609::t_874be84ba57368 39-40,48-49,435-436
+  s_9822029f13e609::t_48fbeb2ea31321 3,9,26-38,41-47,50-52,438
+bench/compare/README.md
+  s_9822029f13e609::t_874be84ba57368 11
+test/types/examples.test-d.ts
+  s_9822029f13e609::t_3735a2dee1b82c 151-158
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a0b7bf4ae54f389a73857ac2d716983c82425b68",
+  "prompts": {},
+  "sessions": {
+    "s_9822029f13e609": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8444603f-d257-481a-a71b-1dce68106d54",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": null
+    }
+  }
+}
