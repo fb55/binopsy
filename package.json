@@ -1,15 +1,23 @@
 {
   "name": "binopsy",
   "version": "0.0.0",
-  "description": "Typed binary codecs: compiled decoders and encoders, partial decoding and streams",
+  "description": "Read and write binary formats in TypeScript, with types that check how the fields fit together: compiled decoders and encoders, streams and partial decoding",
   "keywords": [
     "binary",
+    "binary-parser",
     "bit",
     "buffer",
+    "codec",
+    "decode",
     "encode",
+    "file-format",
     "pack",
+    "parser",
+    "protocol",
     "serializer",
-    "struct"
+    "stream",
+    "struct",
+    "typescript"
   ],
   "license": "MIT",
   "author": "Felix Boehm <me@feedic.com>",

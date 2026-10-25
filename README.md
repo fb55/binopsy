@@ -1,13 +1,12 @@
 # `binopsy`
 
-Typed binary codecs for TypeScript: declare a format once, then decode it, encode it and stream it.
-Codecs compile to JavaScript functions specialized to their format.
+Read and write binary formats in TypeScript, with the types checking how the fields fit together.
 
 ```sh
 npm install binopsy
 ```
 
-binopsy is an ES module with TypeScript types. It works on `Uint8Array`s (Node.js `Buffer`s are ones), in Node.js and in browsers.
+Describe a format field by field: binopsy infers the values it reads and writes, and compiles each codec to JavaScript specialized to its format.
 
 ```ts
 import { array, bin, string, u16le, u8 } from "binopsy";
@@ -24,7 +23,33 @@ const player = Player.decode(input);
 Player.encode(player); // The bytes again
 ```
 
-Types are inferred: no annotations are needed, and mistakes (a misspelled field, a length that is not a number, a case for a value the tag never has) are type errors where they are written.
+Lengths, counts and tags name fields before them, and TypeScript checks the names where they are written:
+
+```ts
+// Error: there is no field `cuont`
+bin().u8("count").field("ratings", array(u16le, "cuont"));
+
+// Error: `name` is not a number
+bin().field("name", string(u8)).field("ratings", array(u16le, "name"));
+```
+
+## Why binopsy
+
+- **Formats as they are.** Fields depend on earlier ones: a count sizes an array, a tag selects a message (and narrows its type), a version or a flag adds fields. Bit fields, 24-bit integers, padding and alignment cover the layouts of C structs and devices.
+- **One definition for every use.** A parser decodes, encodes (writing length prefixes, and fields such as checksums that you compute from the others), measures values, decodes streams whose values span chunks, and decodes only the fields you pick (and those they depend on).
+- **Fast.** In a [benchmark against eight libraries](bench/compare/README.md), binopsy had the highest throughput decoding and encoding each of seven formats, at 1.5 to 12 times that of the next fastest library supporting the format. Compiling costs a millisecond or two for each codec, the first time it is used.
+- **Errors that point at the byte.** A decoding error names the field that failed, with its path and byte offset; `trace` maps every field to its bytes.
+
+binopsy is an ES module without dependencies, with TypeScript types. It works on `Uint8Array`s (Node.js `Buffer`s are ones), in Node.js, Deno and browsers.
+
+Other libraries fit better for some needs:
+
+- Formats that point to offsets elsewhere in the file, such as fonts: [restructure](https://github.com/foliojs/restructure) and [Kaitai Struct](https://kaitai.io) have pointers.
+- Runtimes that forbid generating code, such as pages whose Content Security Policy blocks `eval`, Chrome extensions and Vercel Edge Functions: [typed-binary](https://github.com/iwoplaza/typed-binary) and [micro-packed](https://github.com/paulmillr/micro-packed) interpret their formats.
+- Small bundles: for a record of numbers, strings and arrays, typed-binary and restructure add 2 to 3 kB (minified and gzipped), binopsy about 13 kB.
+- Formats you design yourself, to share with other languages: [Protocol Buffers](https://protobuf.dev) and [FlatBuffers](https://flatbuffers.dev) generate code for each.
+
+## Use cases
 
 Each section below solves one problem:
 
@@ -407,9 +432,10 @@ const Record = bin().u8("count").pipe(withValues);
 ## Performance
 
 - A codec compiles to JavaScript functions for its format, each when it is first needed: a decoder, an encoder, a resumable decoder for streams, and a decoder for each `pick`. Fixed-size fields are read and written at constant offsets, and a run of them shares one bounds check.
-- Compiling uses `new Function`: binopsy does not work where generating code is forbidden, such as under a Content Security Policy without `'unsafe-eval'`.
+- Compiling takes a millisecond or two for each codec and each way it is used (decoding, encoding, streaming, …), the first time: processes that decode only a few values pay more for it than they save.
+- Compiling uses `new Function`: binopsy does not work where generating code is forbidden, such as under a Content Security Policy that blocks `eval`. Cloudflare Workers (from the compatibility date 2025-06-01) allow it only while a Worker starts: use each codec there once at startup, in each way you need it.
 - Streams decode a value with the plain decoder when its chunk holds all of it, and resume decoding only for values that span chunks.
-- `bench/parse.ts`, in the repository, measures decoding and encoding of a database-like format. Throughput depends on the format: measure yours, on your Node.js version and hardware.
+- [`bench/compare`](bench/compare/README.md) compares binopsy with eight libraries on seven formats, and `bench/parse.ts` measures decoding and encoding of a database-like format. Throughput depends on the format: measure yours, on your runtime and hardware.
 
 ## Reference
 

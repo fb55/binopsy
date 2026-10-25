@@ -8,7 +8,7 @@ Measured on 2026-10-25 with Node 26.9.0 on a Ryzen 7 5800X3D (Linux), each proce
 
 Throughput is in MB/s (higher is better): the median of five fresh processes, each warmed up for at least 250 ms. First use is in milliseconds (lower is better): defining the format, compiling it, and the first decode or encode, in each of fifteen fresh processes (excluding the import). "—" means the library cannot express the format, or has no working encoder for it (see [differences](#api-and-semantic-differences)).
 
-binopsy has the highest throughput in every scenario, for decoding and encoding: 1.5 to 12 times that of the next fastest library. Its first use takes longer than that of the other libraries, as it compiles each codec.
+binopsy has the highest throughput in every scenario, for decoding and encoding: 1.5 to 12 times that of the next fastest library. Its first use usually takes longer, as it compiles each codec.
 
 ### header
 

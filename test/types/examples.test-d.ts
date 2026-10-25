@@ -148,6 +148,14 @@ describe("The README", () => {
     }>();
   });
 
+  it("rejects names of missing fields, and lengths that are not numbers", () => {
+    // @ts-expect-error There is no field `cuont`.
+    bin().u8("count").field("ratings", array(u16le, "cuont"));
+
+    // @ts-expect-error `name` is not a number.
+    bin().field("name", string(u8)).field("ratings", array(u16le, "name"));
+  });
+
   it("reads a file format", () => {
     const png = Png.decode(readFileSync("image.png"));
     png.chunks.map((chunk) => chunk.type); // ["IHDR", "IDAT", "IEND"]
