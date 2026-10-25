@@ -1,17 +1,25 @@
 package-lock.json
   s_9822029f13e609::t_ce3233bbeacd53 17,1179,2662,2977,2984,2991,2998,3005,3012,3019,3026,3033,3040,3047,3054,3061,3068,3075,3081
+  s_2d33059a5c7ec6::t_27286dbd699586 17,1179,2662,2977,2984,2991,2998,3005,3012,3019,3026,3033,3040,3047,3054,3061,3068,3075,3081
 package.json
   s_9822029f13e609::t_ddb6fee1c7a418 37,51
+  s_2d33059a5c7ec6::t_c1b28ca992d7d1 37
+  s_2d33059a5c7ec6::t_8ffbdc3fbb6c38 51
 src/bin.ts
   s_9822029f13e609::t_7b1a756502ec3a 372,1302-1311
+  s_2d33059a5c7ec6::t_c1b28ca992d7d1 372,1302-1311
 src/codec.ts
   s_9822029f13e609::t_911cceebc3761b 254-255
+  s_2d33059a5c7ec6::t_55d274567e2d0b 254-255
 src/codecs.ts
   s_9822029f13e609::t_6f53cd923ba942 266,283,319-320,326
+  s_2d33059a5c7ec6::t_b38048b4f5101e 266,283,319-320,326
 src/compile.ts
   s_9822029f13e609::t_5f1c35851c6e43 301
+  s_2d33059a5c7ec6::t_55d274567e2d0b 301
 src/stream.ts
   s_9822029f13e609::t_275b2d493ab06f 12
+  s_2d33059a5c7ec6::t_b38048b4f5101e 12
 ---
 {
   "schema_version": "authorship/3.0.0",
@@ -19,6 +27,14 @@ src/stream.ts
   "base_commit_sha": "7d1734635a22ebf5f9537641096d56bc3cb7143e",
   "prompts": {},
   "sessions": {
+    "s_2d33059a5c7ec6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1706d-c199-70f0-ae76-bac067aa0b27",
+        "model": "gpt-6-astra"
+      },
+      "human_author": null
+    },
     "s_9822029f13e609": {
       "agent_id": {
         "tool": "claude",
