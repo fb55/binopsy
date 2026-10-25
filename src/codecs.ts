@@ -762,7 +762,14 @@ class Str extends Codec<string> {
     const start = g.let(g.at());
     g.callback(texts[encoding].write, "buf", start, value);
     const end = `${start} + ${size}`;
-    if (terminator !== undefined) {
+    if (encoding === "utf8" && terminator !== undefined && terminator < 128) {
+      // ASCII bytes only occur as those characters in UTF-8.
+      g.check(
+        `${value}.includes(${g.k(String.fromCharCode(terminator))})`,
+        "invalid",
+        '"contains its terminator"',
+      );
+    } else if (terminator !== undefined) {
       const found = g.callback(
         find,
         "buf",
