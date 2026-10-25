@@ -874,6 +874,18 @@ class List extends Codec<unknown[]> {
       }
     }
     const v = wanted ? g.let(`new Array(${n})`) : "";
+    if (wanted && item instanceof Primitive) {
+      g.usesView ||= item.usesView;
+      const start = item.usesView ? g.let(g.viewAt()) : undefined;
+      g.loop(String(n), (i) => {
+        const index = `${i} * ${each}`;
+        g.line(
+          `${v}[${i}] = ${item.expr(g.at(index), start === undefined ? undefined : `${start} + ${index}`)};`,
+        );
+      });
+      g.skip(typeof n === "number" ? n * each : `${n} * ${each}`);
+      return v;
+    }
     g.loop(
       String(n),
       (i) => {
@@ -1042,7 +1054,8 @@ class Sized extends Codec {
     g.need(n);
     // The value may not read past the region, and the bytes it leaves are skipped.
     const codec = this.inner;
-    const mode = g.mode === "trace" ? "trace" : "decode";
+    const mode =
+      g.mode === "buffer" ? "buffer" : g.mode === "trace" ? "trace" : "decode";
     const fn = g.k(compile(codec, mode, wanted ? "all" : "none", true));
     const scope = scoped(codec) ? `, ${g.context(codec.reads)}` : "";
     g.flush();

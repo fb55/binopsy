@@ -47,6 +47,7 @@ export abstract class Codec<O = unknown, I = O, Ctx = unknown> {
   /** The earlier fields the codec reads. @internal */
   readonly reads: Reads;
   #decoder: Compiled | undefined;
+  #bufferDecoder: Compiled | undefined;
   #encoder: Encoder | undefined;
   #sizer: Encoder | undefined;
 
@@ -128,8 +129,9 @@ export abstract class Codec<O = unknown, I = O, Ctx = unknown> {
    * @returns The decoded value.
    */
   decode(this: Standalone, bytes: Uint8Array, offset = 0): O {
-    const cur = cursor(bytes, offset);
-    return (this as unknown as AnyCodec).decoder()(cur) as O;
+    const cur = cursor(bytes, offset, true);
+    const codec = this as unknown as AnyCodec;
+    return (codec.#bufferDecoder ??= compile(codec, "buffer", "all"))(cur) as O;
   }
 
   /**
@@ -249,8 +251,8 @@ export type Context<C> = C extends {
 export type Obj = Record<string, unknown>;
 
 /**
- * A read position in `bytes` (`view` is a `DataView` of them); compiled
- * decoders read up to `end`. If the input is not `final`, more of it may
+ * A read position in `bytes`; compiled decoders read up to `end`.
+ * If the input is not `final`, more of it may
  * follow (in a stream): decoders reaching its end throw `MORE`.
  */
 export interface Cursor {
@@ -308,10 +310,14 @@ const NOTHING = new Uint8Array(0);
  */
 let last: Uint8Array | undefined;
 let lastView: DataView | undefined;
+let lastBuffer: ArrayBufferLike | undefined;
+let bufferView: DataView | undefined;
 
 function forget(): void {
   last = undefined;
   lastView = undefined;
+  lastBuffer = undefined;
+  bufferView = undefined;
 }
 
 /**
@@ -329,15 +335,38 @@ export function viewOf(bytes: Uint8Array): DataView {
   return lastView!;
 }
 
+/**
+ * A read view shared by slices of the same backing buffer, until this job ends.
+ *
+ * @param bytes The bytes to decode (generated reads add their byte offset).
+ * @returns A view of the backing buffer, not limited to the slice.
+ * @internal
+ */
+export function readView(bytes: Uint8Array): DataView {
+  const { buffer } = bytes;
+  if (buffer !== lastBuffer) {
+    if (!lastBuffer) queueMicrotask(forget);
+    lastBuffer = buffer;
+    bufferView = new DataView(buffer);
+  }
+  return bufferView!;
+}
+
 function checkOffset(offset: number, bytes: Uint8Array): void {
   if (!Number.isSafeInteger(offset) || offset < 0 || offset > bytes.length) {
     throw new RangeError(`offset ${offset} is outside the bytes`);
   }
 }
 
-function cursor(bytes: Uint8Array, offset: number): Cursor {
+function cursor(bytes: Uint8Array, offset: number, whole = false): Cursor {
   checkOffset(offset, bytes);
-  return { bytes, view: viewOf(bytes), offset, end: bytes.length, final: true };
+  return {
+    bytes,
+    view: whole ? readView(bytes) : viewOf(bytes),
+    offset,
+    end: bytes.length,
+    final: true,
+  };
 }
 
 /** Reads consecutive values from `bytes`. */

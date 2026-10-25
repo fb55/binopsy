@@ -16,7 +16,7 @@ import {
   u8,
   type Codec,
 } from "../src/index.ts";
-import { hex, type Standalone } from "./helpers.ts";
+import { collect, decodeError, hex, type Standalone } from "./helpers.ts";
 
 describe("Traces", () => {
   it("locate the fields of parsers, inlined or not", () => {
@@ -91,6 +91,60 @@ describe("Traces", () => {
 });
 
 describe("Readers", () => {
+  it("locate truncated skipped spans like fully decoded spans", () => {
+    const codec = bin().u32le("id").field("text", string(u8)).u16le("tail");
+    const encoded = codec.encode({ id: 9, text: "abc", tail: 42 });
+    const skipped = codec.pick();
+    for (let end = 0; end < encoded.length; end++) {
+      const input = encoded.subarray(0, end);
+      let failure: unknown;
+      try {
+        codec.decode(input);
+      } catch (e) {
+        failure = e;
+      }
+      expect(() => skipped.decode(input)).toThrow(failure);
+    }
+  });
+
+  it("keep offsets and bounds relative to slices sharing a buffer", async () => {
+    const codec = bin().u16le("a").u32be("b").f32le("c");
+    const values = [
+      { a: 1, b: 0xfedcba98, c: 1.5 },
+      { a: 0xabcd, b: 0x01020304, c: -2.25 },
+    ];
+    const storage = new Uint8Array(40).fill(0xff);
+    const first = storage.subarray(3, 13);
+    const second = storage.subarray(23, 33);
+    codec.encodeInto(values[0], first);
+    codec.encodeInto(values[1], second);
+    expect(codec.decode(first)).toStrictEqual(values[0]);
+    expect(codec.decode(second)).toStrictEqual(values[1]);
+    expect(sized(10, codec).decode(second)).toStrictEqual(values[1]);
+    expect(lazy(() => codec).decode(first)).toStrictEqual(values[0]);
+    expect(codec.decode(storage.subarray(1, 13), 2)).toStrictEqual(values[0]);
+    expect(new Reader(second).read(codec)).toStrictEqual(values[1]);
+    expect(codec.pick("b").decode(first)).toStrictEqual({ b: values[0].b });
+    expect(
+      trace(codec, second).map(({ start, end }) => [start, end]),
+    ).toStrictEqual([
+      [0, 2],
+      [2, 6],
+      [6, 10],
+    ]);
+    expect(() => codec.decode(first.subarray(0, 5))).toThrow(
+      decodeError({
+        code: "end-of-input",
+        path: ["b"],
+        offset: 2,
+        message: /4 bytes needed, 3 left/u,
+      }),
+    );
+    await expect(
+      collect(codec, [first.subarray(0, 4), first.subarray(4), second]),
+    ).resolves.toStrictEqual(values);
+  });
+
   it("read consecutive values", () => {
     const reader = new Reader(hex("03 616263 02 6465 00"));
     const Str = bin().u8("len").field("text", string("len"));

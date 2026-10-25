@@ -35,10 +35,11 @@ export type Reads = readonly (string | typeof ALL_FIELDS)[];
 export type Selection = "all" | "none";
 
 /**
+ * Buffer decoding shares a DataView over the input backing buffer.
  * Tracing is decoding that records where each field is (in `cur.trace`);
  * sizing is encoding without writing (or checking): only the offset moves.
  */
-export type Mode = "decode" | "resume" | "trace" | "encode" | "size";
+export type Mode = "decode" | "buffer" | "resume" | "trace" | "encode" | "size";
 
 export type Decoder = (cur: Cursor, scope?: object) => unknown;
 export type Encoder = (w: Writer, value: unknown, scope?: object) => void;
@@ -71,7 +72,7 @@ export function compile(
 ): Encoder;
 export function compile(
   codec: AnyCodec,
-  mode: "decode" | "resume" | "trace",
+  mode: "decode" | "buffer" | "resume" | "trace",
   selection: Selection,
   inner?: boolean,
 ): Decoder;
@@ -139,6 +140,8 @@ export type Run = readonly (readonly [
 
 export class Gen {
   readonly mode: Mode;
+  /** Whether emitted reads use the cursor's DataView. */
+  usesView = false;
   /** Locals holding the fields of the parser being compiled (when encoding, the values being encoded). */
   fields = new Map<string, string>();
   /** When the variables of fields of merged matches hold them (those of other cases do not). */
@@ -293,6 +296,15 @@ export class Gen {
       return this.pos ? `o + ${this.pos} + ${k}` : `o + ${k}`;
     }
     return this.pos + k ? `o + ${this.pos + k}` : "o";
+  }
+
+  /**
+   * The current read position within the DataView.
+   *
+   * @returns An offset relative to the slice or its backing buffer, by mode.
+   */
+  viewAt(): string {
+    return this.mode === "buffer" ? `${this.at()} + base` : this.at();
   }
 
   /**
@@ -637,6 +649,8 @@ export class Gen {
   build(result: string): Compiled {
     this.flush();
     const s = this.scope === undefined ? "" : `, ${this.scope}`;
+    const base =
+      this.mode === "buffer" && this.usesView ? ", base = buf.byteOffset" : "";
     const [head, setup, done] = this.encoding
       ? [
           `function encode(w, v${s})`,
@@ -645,7 +659,7 @@ export class Gen {
         ]
       : [
           `function${this.mode === "resume" ? "*" : ""} decode(cur${s})`,
-          `${this.mode === "resume" ? "let" : "const"} buf = cur.bytes, dv = cur.view, end = cur.end;\nlet o = cur.offset;`,
+          `${this.mode === "resume" ? "let" : "const"} buf = cur.bytes, dv = cur.view, end = cur.end${base};\nlet o = cur.offset;`,
           `cur.offset = o;\nreturn ${result || "undefined"};`,
         ];
     const source = [

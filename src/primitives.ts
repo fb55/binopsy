@@ -41,6 +41,8 @@ export class Primitive<
   readonly name: string;
   /** Whether values are unsigned integers of up to 32 bits (so they are valid lengths). */
   readonly count: boolean;
+  /** Whether reading uses a DataView instead of indexing the bytes. */
+  readonly usesView: boolean;
   private readonly method: Method;
   private readonly le: boolean;
 
@@ -48,6 +50,7 @@ export class Primitive<
     super(size);
     this.name = name;
     this.count = method.startsWith("Uint");
+    this.usesView = size !== 3 && method !== "Uint8";
     this.method = method;
     this.le = le;
   }
@@ -77,10 +80,11 @@ export class Primitive<
    * An expression reading a value at offset `at`.
    *
    * @param at An expression of the offset.
+   * @param viewAt The corresponding position in the DataView.
    * @returns An index into `buf` (for bytes), its bytes combined (for 24
    *   bits), or a call of a `DataView` method.
    */
-  expr(at: string): string {
+  expr(at: string, viewAt = at): string {
     if (this.size === 3) {
       const [high, middle, low] = this.bytes(at);
       const unsigned = `(${high} << 16 | ${middle} << 8 | ${low})`;
@@ -88,12 +92,13 @@ export class Primitive<
     }
     return this.method === "Uint8"
       ? `buf[${at}]`
-      : `dv.get${this.method}(${at}${this.order})`;
+      : `dv.get${this.method}(${viewAt}${this.order})`;
   }
 
   emitRead(g: Gen, wanted: boolean): string {
+    g.usesView ||= wanted && this.usesView;
     g.need(this.size);
-    const v = wanted ? g.let(this.expr(g.at())) : "";
+    const v = wanted ? g.let(this.expr(g.at(), g.viewAt())) : "";
     g.skip(this.size);
     return v;
   }
