@@ -1,0 +1,22 @@
+package.json
+  s_2d33059a5c7ec6::t_100ff0083adb96 37
+  s_2d33059a5c7ec6::t_8ffbdc3fbb6c38 51
+package-lock.json
+  s_2d33059a5c7ec6::t_27286dbd699586 17,1179,2662,2977,2984,2991,2998,3005,3012,3019,3026,3033,3040,3047,3054,3061,3068,3075,3081
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9cb3c6ecd27012c2db33d2bd092487b5bc1bfe84",
+  "prompts": {},
+  "sessions": {
+    "s_2d33059a5c7ec6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1706d-c199-70f0-ae76-bac067aa0b27",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Felix Boehm <188768+fb55@users.noreply.github.com>"
+    }
+  }
+}
