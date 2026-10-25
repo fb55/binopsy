@@ -1,0 +1,32 @@
+package-lock.json
+  s_2d33059a5c7ec6::t_27286dbd699586 17,1179,2662,2977,2984,2991,2998,3005,3012,3019,3026,3033,3040,3047,3054,3061,3068,3075,3081
+src/codec.ts
+  s_2d33059a5c7ec6::t_55d274567e2d0b 254-255
+src/codecs.ts
+  s_2d33059a5c7ec6::t_b38048b4f5101e 266,283,319-320,326
+src/bin.ts
+  s_2d33059a5c7ec6::t_c1b28ca992d7d1 372,1331-1340
+package.json
+  s_2d33059a5c7ec6::t_c1b28ca992d7d1 37
+  s_2d33059a5c7ec6::t_8ffbdc3fbb6c38 51
+src/stream.ts
+  s_2d33059a5c7ec6::t_b38048b4f5101e 12
+src/compile.ts
+  s_2d33059a5c7ec6::t_55d274567e2d0b 301
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3d150521060e8f81a625783ee69dd56d5dd87b1a",
+  "prompts": {},
+  "sessions": {
+    "s_2d33059a5c7ec6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1706d-c199-70f0-ae76-bac067aa0b27",
+        "model": "gpt-6-astra"
+      },
+      "human_author": null
+    }
+  }
+}
