@@ -1,0 +1,43 @@
+.gitignore
+  s_9822029f13e609::t_1c8d6150fbdae4 4
+bench/compare/README.md
+  s_9822029f13e609::t_69a5a9c26fe916 1-294
+bench/compare/adapters.mjs
+  s_9822029f13e609::t_c3a793e6be755a 1-580
+bench/compare/binopsy.mjs
+  s_9822029f13e609::t_88a42dfae1472b 1-17
+bench/compare/cold.mjs
+  s_9822029f13e609::t_9fcff4c1e236b3 1-67
+bench/compare/extra.mjs
+  s_9822029f13e609::t_3c6288fce10a30 1-138
+bench/compare/manual.mjs
+  s_9822029f13e609::t_b70d6313ac236f 1-319
+bench/compare/package-lock.json
+  s_9822029f13e609::t_4b0d0981d6e1c9 1-382
+bench/compare/package.json
+  s_9822029f13e609::t_d5c091546489af 1-18
+bench/compare/run.py
+  s_9822029f13e609::t_9b885b3578d8eb 1-106
+bench/compare/scenarios.mjs
+  s_9822029f13e609::t_c4cb962d62b972 1-140
+bench/compare/schemas.mjs
+  s_9822029f13e609::t_e477ac9fd4dc2c 1-79
+bench/compare/worker.mjs
+  s_9822029f13e609::t_5e8c4622fe39c1 1-155
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6776e68ee639f832ab5645a96ad4fb4aaccfbe66",
+  "prompts": {},
+  "sessions": {
+    "s_9822029f13e609": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8444603f-d257-481a-a71b-1dce68106d54",
+        "model": "unknown"
+      },
+      "human_author": "Felix Boehm <188768+fb55@users.noreply.github.com>"
+    }
+  }
+}
