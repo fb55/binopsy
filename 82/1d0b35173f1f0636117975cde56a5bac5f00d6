@@ -1,0 +1,46 @@
+research/precompile/run.py
+  s_71561894ff5339::t_1baf5708fb4cd4 42-45
+  s_71561894ff5339::t_7831cbdf2b0137 1-41,46-51
+research/precompile/measurements.json
+  s_71561894ff5339::t_3db2feaa8df3e1 1-852
+research/precompile/startup.mjs
+  s_71561894ff5339::t_a31662cbc24e06 1,4,14-15,18-25
+  s_71561894ff5339::t_79edafb9ea2587 2-3,5-13,16-17
+research/precompile/measure.py
+  s_71561894ff5339::t_1baf5708fb4cd4 15,20,33
+  s_71561894ff5339::t_79edafb9ea2587 1-14,16-19,21-32,34-38,41-42
+  s_71561894ff5339::t_b28db19daf2ac6 39-40
+research/precompile/formats.mjs
+  s_71561894ff5339::t_79edafb9ea2587 1,4-7,15-23,29-36
+  s_71561894ff5339::t_a31662cbc24e06 2-3,8-14,24-28
+research/precompile/build.mjs
+  s_71561894ff5339::t_b28db19daf2ac6 101
+  s_71561894ff5339::t_1baf5708fb4cd4 11,17-20
+  s_71561894ff5339::t_a31662cbc24e06 12-16,22-28,31-37,43-47,55-56,59-84,89-100
+  s_71561894ff5339::t_826c51dacc7850 5
+  s_71561894ff5339::t_79edafb9ea2587 1-4,6-10,21,29-30,38-42,48-54,57-58,85-88
+research/precompile/REPORT.md
+  s_71561894ff5339::t_578bd9cf2c200d 97-114
+  s_71561894ff5339::t_6664a51969e1b6 1-6,13-38,47-55,57-68,74-85,91-96,115-160,171-173,175-193
+  s_71561894ff5339::t_a31662cbc24e06 7-12,39-46,56,69-73,86-90,161-170,174
+research/precompile/verify.mjs
+  s_71561894ff5339::t_79edafb9ea2587 1-3,6-10,12-16,25,28-37,55-61,69
+  s_71561894ff5339::t_a31662cbc24e06 4-5,17-20,22-24,26-27,41-44,51-52,62-68,70-71
+  s_71561894ff5339::t_b28db19daf2ac6 11,21,38-40,45-50,53-54
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "821d0b35173f1f0636117975cde56a5bac5f00d6",
+  "prompts": {},
+  "sessions": {
+    "s_71561894ff5339": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a171da-e37c-70f2-a7e6-d9700970e6e7",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Felix Boehm <188768+fb55@users.noreply.github.com>"
+    }
+  }
+}
