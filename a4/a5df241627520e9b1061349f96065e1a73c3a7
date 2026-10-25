@@ -1,0 +1,19 @@
+src/codecs.ts
+  s_2d33059a5c7ec6::t_701879673772b2 765-772
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a4a5df241627520e9b1061349f96065e1a73c3a7",
+  "prompts": {},
+  "sessions": {
+    "s_2d33059a5c7ec6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1706d-c199-70f0-ae76-bac067aa0b27",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Felix Boehm <188768+fb55@users.noreply.github.com>"
+    }
+  }
+}
