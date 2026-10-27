@@ -46,7 +46,7 @@ Other libraries fit better for some needs:
 
 - Formats that point to offsets elsewhere in the file, such as fonts: [restructure](https://github.com/foliojs/restructure) and [Kaitai Struct](https://kaitai.io) have pointers.
 - Runtimes that forbid generating code, such as pages whose Content Security Policy blocks `eval`, Chrome extensions and Vercel Edge Functions: [typed-binary](https://github.com/iwoplaza/typed-binary) and [micro-packed](https://github.com/paulmillr/micro-packed) interpret their formats.
-- Small bundles: for a record of numbers, strings and arrays, typed-binary and restructure add 2 to 3 kB (minified and gzipped), binopsy about 13 kB.
+- Small bundles: for a record of numbers, strings and arrays, typed-binary and restructure add 2 to 3 kB (minified and gzipped), binopsy about 10 kB.
 - Formats you design yourself, to share with other languages: [Protocol Buffers](https://protobuf.dev) and [FlatBuffers](https://flatbuffers.dev) generate code for each.
 
 ## Use cases
