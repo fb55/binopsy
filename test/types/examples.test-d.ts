@@ -17,6 +17,7 @@ import {
   DecodeError,
   decodeStream,
   fail,
+  enumOf,
   i32le,
   lazy,
   literal,
@@ -40,6 +41,13 @@ import {
   type Output,
   type Path,
 } from "../../src/index.ts";
+
+// Ambient spelling of the README's enum: this project checks erasable TypeScript.
+declare enum Kind {
+  Unknown = 0,
+  Data = 1,
+  Ack = 2,
+}
 
 // Read a file format
 const Chunk = bin()
@@ -245,6 +253,37 @@ describe("The README", () => {
     >();
 
     match((o: { kind: number }) => o.kind & 0xf);
+  });
+
+  it("names enum values and matches packed names", () => {
+    enumOf(bits(2), ["low", "normal", "high", "reserved"]);
+    enumOf(bits(2), ["low", "normal", "high"], enumOf.reject);
+    enumOf(bits(2), ["low", "normal", "high"], "high");
+    enumOf(bits(1), [false, true]);
+    const sparse = enumOf(
+      u8,
+      { 1: "data", 2: "ack", 0x3f: "error" },
+      enumOf.keep,
+    );
+    expectTypeOf<Output<typeof sparse>>().toEqualTypeOf<
+      "data" | "ack" | "error" | number
+    >();
+    enumOf(u8, Kind, enumOf.reject);
+    const fallback = enumOf(u8, Kind, Kind.Unknown);
+    expectTypeOf<Output<typeof fallback>>().toEqualTypeOf<Kind>();
+    const Tag = { Data: "DATA", Ack: "ACK!" } as const;
+    enumOf(string(4), Tag, enumOf.keep);
+
+    const TaggedPacket = bin()
+      .field("kind", enumOf(bits(2), ["data", "ack"], enumOf.reject))
+      .field("flags", bits(6))
+      .field("body", match("kind").case("data", string(u8)).case("ack", u8));
+    TaggedPacket.encode({ kind: "data", flags: 1, body: "Hi" });
+    expectTypeOf<Output<typeof TaggedPacket>>().toEqualTypeOf<
+      | { kind: "data"; flags: number; body: string }
+      | { kind: "ack"; flags: number; body: number }
+    >();
+    match("kind").case(Kind.Data, u8);
   });
 
   it("reads bit-packed fields", () => {

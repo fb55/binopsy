@@ -2,9 +2,13 @@
 
 ## Unreleased
 
+`enumOf(codec, table, policy?)` names numeric wire values or checks membership in TypeScript enums and const objects. Unknown raw values can be rejected (`enumOf.reject`), kept (`enumOf.keep`), or decoded as a declared fallback passed directly as the third argument. A policy is required unless a small raw domain is completely covered. Tables are snapshotted and validated when defined; unknown data reports its field and offset, including under `pick`.
+
+Numeric enum members now work as `match` cases, preserving enum identity and keeping unknown numeric alternatives when subtracting cases.
+
 Unused match and bit-field support is now removed by bundlers, including the code for merging match cases into parsers.
 Bit fields are codecs: replace `.bits(name, width)` with `.field(name, bits(width))`.
-`bits` is only supported as a direct parser field; standalone use or wrapping it (e.g. in `array`) throws when compiled. Consecutive fields retain their byte sharing, bit order, and merge behavior.
+`bits` and its `enumOf`, `map`, `literal`, and `refine` wrappers pack together as direct parser fields. Standalone use and array items are rejected by the types and throw when compiled from JavaScript. Consecutive fields retain their byte sharing, bit order, and merge behavior.
 
 binopsy is rewritten in TypeScript, around codecs: values that decode and encode, compiled to specialized JavaScript functions.
 Parsers are defined as before, field by field, but each method returns a new parser, and every parser is a codec.

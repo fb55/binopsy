@@ -20,6 +20,27 @@ export declare const matchTypes: unique symbol;
 /** Values tags have. */
 export type Value = string | number | bigint | boolean;
 
+/** Enum members as their scalar literals, for comparison without numeric enum assignability. */
+export type ScalarValue<T> = T extends number
+  ? `${T}` extends `${infer N extends number}`
+    ? N
+    : never
+  : T extends string
+    ? `${T}`
+    : T;
+export type Subtract<T, Used> = T extends unknown
+  ? [ScalarValue<T>] extends [ScalarValue<Used>]
+    ? never
+    : T
+  : never;
+export type Intersect<T, V> = T extends unknown
+  ? [ScalarValue<T>] extends [ScalarValue<V>]
+    ? T
+    : [ScalarValue<V>] extends [ScalarValue<T>]
+      ? V
+      : never
+  : never;
+
 type IsAny<T> = 0 extends 1 & T ? true : false;
 export type IsUnion<T, All = T> = T extends unknown
   ? [All] extends [T]
@@ -27,19 +48,19 @@ export type IsUnion<T, All = T> = T extends unknown
     : true
   : never;
 /** Why `V` is not a case value (else `never`): `Used` have cases, and the tag only has values `Allowed`. */
-type CaseError<V, Used, Allowed> =
+type CaseError<V, Used, Allowed, S = ScalarValue<V>> =
   IsAny<V> extends true
     ? "a case value must be a literal"
-    : true extends IsUnion<V>
+    : true extends IsUnion<S>
       ? "a case value must be one literal"
-      : string extends V
+      : string extends S
         ? "a case value must be a literal"
-        : number extends V
+        : number extends S
           ? "a case value must be a literal"
-          : bigint extends V
+          : bigint extends S
             ? "a case value must be a literal"
-            : [Extract<V, Used>] extends [never]
-              ? [V] extends [Allowed]
+            : [Extract<S, ScalarValue<Used>>] extends [never]
+              ? [S] extends [ScalarValue<Allowed>]
                 ? never
                 : `${V & Value} is not a value of the tag`
               : `${V & Value} already has a case`;

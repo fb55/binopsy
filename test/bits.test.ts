@@ -27,9 +27,9 @@ describe("Bit fields", () => {
   );
 
   it.each<[string, Standalone, unknown]>([
-    ["standalone", bits(4), 1],
-    ["in arrays", array(bits(4), 2), [1, 2]],
-    ["wrapped", literal(bits(4), 1), 1],
+    ["standalone", bits(4) as unknown as Standalone, 1],
+    ["in arrays", array(bits(4) as unknown as Codec<number>, 2), [1, 2]],
+    ["wrapped", literal(bits(4), 1) as unknown as Standalone, 1],
   ])("require direct parser fields, %s", (_, codec, value) => {
     expect(() => codec.decode(Uint8Array.of(0x12))).toThrow(
       /direct parser fields/u,
@@ -200,7 +200,10 @@ describe("Bit fields", () => {
       "are placed bit by bit, %s first",
       async (bitOrder) => {
         type Bits = Codec<Record<string, number>> & {
-          field(name: string, codec: Codec<number>): Bits;
+          field(
+            name: string,
+            codec: Codec<number, number, unknown, boolean>,
+          ): Bits;
         };
         let parser = bin({ bitOrder }) as unknown as Bits;
         const value: Record<string, number> = {};

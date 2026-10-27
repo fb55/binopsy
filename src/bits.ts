@@ -2,6 +2,7 @@
 import type { Entry, Order, Piece } from "./bin.ts";
 import { Codec } from "./codec.ts";
 import type { Gen } from "./compile.ts";
+import type { BitDomain, WithDomain } from "./domain.ts";
 
 // oxfmt-ignore
 export type BitWidth = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 | 32 | 33 | 34 | 35 | 36 | 37 | 38 | 39 | 40 | 41 | 42 | 43 | 44 | 45 | 46 | 47 | 48 | 49 | 50 | 51 | 52 | 53;
@@ -13,11 +14,16 @@ export type BitWidth = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 1
  * @param width The number of bits.
  * @returns A codec for a direct parser field, not a standalone value.
  */
-export function bits(width: BitWidth): Codec<number> {
+export function bits<const N extends BitWidth>(
+  width: N,
+): WithDomain<
+  Codec<number, number, unknown, true>,
+  [N] extends [keyof BitDomain] ? BitDomain[N & keyof BitDomain] : unknown
+> {
   if (!(Number.isInteger(width) && width >= 1 && width <= 53)) {
     throw new RangeError(`${width} bits, not 1 to 53`);
   }
-  return new Bits(width);
+  return new Bits(width) as never;
 }
 
 type Layout = { size: number; width: number; order: Order };
@@ -26,6 +32,14 @@ type Layout = { size: number; width: number; order: Order };
 export class Bits extends Codec<number> {
   override readonly packing = this;
   readonly width: number;
+  /** Optional conversions around the raw bits, supplied by wrappers. */
+  declare readonly decodeValue?: (
+    g: Gen,
+    raw: string,
+    wanted: boolean,
+    at: string,
+  ) => string;
+  declare readonly encodeValue?: (g: Gen, value: string) => string;
 
   constructor(width: number) {
     super(Number.NaN);
@@ -78,7 +92,7 @@ export class Bits extends Codec<number> {
     // The bytes each field starts and ends in, for errors.
     let end = 0;
     const ends = fields.map(
-      ({ name, codec: { width } }): [string, number, number] => [
+      ({ name, packing: { width } }): [string, number, number] => [
         name,
         Math.floor(end / 8),
         Math.ceil((end += width) / 8),
@@ -90,15 +104,21 @@ export class Bits extends Codec<number> {
     let offset = 0;
     for (const [j, field] of fields.entries()) {
       g.field = field.name;
-      const v = want(field.name, i + j)
-        ? g.let(extract(g.at(), field.order, offset, field.codec.width))
-        : "";
+      const wanted = want(field.name, i + j);
+      const { packing } = field;
+      const raw =
+        wanted || field.codec.checks
+          ? g.let(extract(g.at(), field.order, offset, packing.width))
+          : "";
+      const v = packing.decodeValue
+        ? packing.decodeValue(g, raw, wanted, g.at(Math.floor(offset / 8)))
+        : raw;
       if (g.mode === "trace") g.trace(g.at(), v, g.at(bytes));
       if (v) {
         g.fields.set(field.name, v);
         if (output.has(field.name)) parts.push({ name: field.name, v });
       }
-      offset += field.codec.width;
+      offset += field.packing.width;
     }
     g.skip(bytes);
     return i + fields.length - 1;
@@ -123,23 +143,21 @@ export class Bits extends Codec<number> {
     computed: ReadonlyMap<string, string>,
   ): number {
     const fields = this.run(entries, i);
-    const total = fields.reduce((n, f) => n + f.codec.width, 0);
+    const total = fields.reduce((n, f) => n + f.packing.width, 0);
     const bytes: string[][] = Array.from(
       { length: Math.ceil(total / 8) },
       () => [],
     );
     let offset = 0;
-    for (const {
-      name,
-      codec: { width },
-      order,
-    } of fields) {
+    for (const { name, packing, order } of fields) {
       g.field = name;
-      const v = g.let(
+      const { width } = packing;
+      const value = g.let(
         computed.get(name) ?? `${object}[${JSON.stringify(name)}]`,
         "let",
       );
-      g.fields.set(name, v);
+      const v = packing.encodeValue ? packing.encodeValue(g, value) : value;
+      g.fields.set(name, value);
       g.check(
         width > 32
           ? `!(Number.isInteger(${v}) && ${v} >= 0 && ${v} <= ${2 ** width - 1})`
@@ -189,15 +207,15 @@ export class Bits extends Codec<number> {
   private run(
     entries: readonly Entry[],
     i: number,
-  ): (Extract<Entry, { kind: "field" }> & { codec: Bits })[] {
+  ): (Extract<Entry, { kind: "field" }> & { packing: Bits })[] {
     const first = entries[i] as Extract<Entry, { kind: "field" }>;
-    const fields = [{ ...first, codec: this as Bits }];
+    const fields = [{ ...first, packing: this as Bits }];
     for (let j = i + 1; j < entries.length; j++) {
       const entry = entries[j];
-      if (entry.kind !== "field" || !(entry.codec instanceof Bits)) {
+      if (entry.kind !== "field" || !(entry.codec.packing instanceof Bits)) {
         break;
       }
-      fields.push(entry as Extract<Entry, { kind: "field" }> & { codec: Bits });
+      fields.push({ ...entry, packing: entry.codec.packing });
     }
     return fields;
   }

@@ -21,6 +21,9 @@ import type {
   IsUnion,
   CaseCodec,
   CaseValues as CaseValue,
+  ScalarValue,
+  Subtract,
+  Intersect,
 } from "./match.ts";
 import { primitives, type Numbers } from "./primitives.ts";
 
@@ -92,7 +95,7 @@ type Mistyped<M, F> = M extends { context: infer C }
 type Wrong<M, F> = M extends { tag: infer Tag extends string; cases: infer Cs }
   ? [Tag] extends [never]
     ? never
-    : Exclude<CaseValue<Cs>, TagOf<F, Tag>>
+    : Exclude<ScalarValue<CaseValue<Cs>>, ScalarValue<TagOf<F, Tag>>>
   : never;
 /** Why match `M` doesn't fit the fields `F` (else `never`). */
 type Problem<M, F> = [Missing<M, F>] extends [never]
@@ -115,11 +118,11 @@ type Checked<X, F, P> = [MatchOf<X>] extends [never]
 
 /** Variant `T` with its tag `K` narrowed to `V` (`never` if it can't be `V`; tags from outside stay out). */
 type Narrow<T, K extends string, V> = K extends keyof T
-  ? [T[K] & V] extends [never]
+  ? [Intersect<T[K], V>] extends [never]
     ? never
     : {
         [P in keyof T]: P extends K
-          ? (T[P] & V) | (undefined extends T[P] ? undefined : never)
+          ? Intersect<T[P], V> | (undefined extends T[P] ? undefined : never)
           : T[P];
       }
   : T;
@@ -173,7 +176,7 @@ type Apply<
               : Branch<
                   T,
                   Tag,
-                  Exclude<TagIn<T, Outer, Tag>, CaseValue<Cs>>,
+                  Subtract<TagIn<T, Outer, Tag>, CaseValue<Cs>>,
                   D,
                   K,
                   S
@@ -268,7 +271,7 @@ export interface Bin<T, I = T, Ctx = unknown>
     codec: Checked<
       X,
       Seen<T, I, Ctx>,
-      Codec<O, In, Seen<T, I, Ctx>> & {
+      Codec<O, In, Seen<T, I, Ctx>, boolean> & {
         readonly [matchTypes]?: X;
         readonly [defaulted]?: D;
       }
@@ -430,7 +433,7 @@ export class Parser extends Codec<Obj> {
   /** Those set whatever the cases of its matches (where they are not, fields around it are read). */
   private readonly definite: ReadonlySet<string>;
   /** Opaque layout of the last run, maintained by its codec. */
-  private readonly tail: unknown;
+  private readonly tail: { size: number } | undefined;
   /** The fields it computes (it adds no more fields). */
   readonly computes: readonly (readonly [string, Compute])[] | undefined;
   /** The fields it decodes (it only decodes). */
@@ -452,18 +455,17 @@ export class Parser extends Codec<Obj> {
     for (let i = prefix?.entries.length ?? 0; i < entries.length; i++) {
       const entry = entries[i];
       addNames(entry, own, definite, reads);
-      if (entry.kind === "field" && entry.codec.packing) {
-        const layout = entry.codec.packing.layout(tail, entry.order);
-        size += layout.size;
-        tail = layout;
-      } else if (entry.kind === "pad") {
+      if (entry.kind === "pad") {
         size += entry.align ? Number.NaN : entry.size;
         tail = undefined;
       } else {
         const { codec } = entry;
-        size += codec.size;
         checks ||= codec.checks;
-        tail = undefined;
+        tail =
+          entry.kind === "field"
+            ? codec.packing?.layout(tail, entry.order)
+            : undefined;
+        size += tail?.size ?? codec.size;
       }
     }
     super(size, checks || Boolean(computes), [...reads]);

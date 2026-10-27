@@ -8,6 +8,7 @@ import {
   bits,
   bytes,
   decodeStream,
+  enumOf,
   lazy,
   literal,
   match,
@@ -81,3 +82,12 @@ export const packed = bin()
   .field("flags", bits(3))
   .field("value", bits(5))
   .encode({ flags: 1, value: 2 });
+
+export const strictEnum = enumOf(u8, { 1: "data", 2: "ack" }, enumOf.reject);
+export const openEnum = enumOf(u8, { 1: "data", 2: "ack" }, enumOf.keep);
+export const fallbackEnum = enumOf(u8, { 1: "data", 2: "ack" }, "ack");
+export const packedEnum = bin().field("kind", enumOf(bits(1), ["data", "ack"]));
+// @ts-expect-error A fallback must be declared in the table.
+enumOf(u8, { 1: "data", 2: "ack" }, "other");
+// @ts-expect-error Bit fields are not standalone values.
+bits(4).decode(new Uint8Array());

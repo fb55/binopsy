@@ -216,6 +216,51 @@ IPv4.decode(packet);
 - The first bit field takes the most significant bits of its byte, as in network protocols. `bin({ bitOrder: "lsb" })` starts with the least significant ones.
 - `map(codec, { decode, encode })` converts values both ways. Without `encode`, it only decodes.
 
+## Enums and named values
+
+`enumOf` gives raw values names, or checks membership in a TypeScript enum or a const object. Inline tables keep their literal types:
+
+```ts
+import { bits, enumOf, string, u8 } from "binopsy";
+
+enumOf(bits(2), ["low", "normal", "high", "reserved"]); // All four values named
+enumOf(bits(2), ["low", "normal", "high"], enumOf.reject); // Raw 3 fails
+enumOf(bits(2), ["low", "normal", "high"], "high"); // Raw 3 becomes "high"
+enumOf(bits(1), [false, true]); // boolean
+enumOf(u8, { 1: "data", 2: "ack", 0x3f: "error" }, enumOf.keep);
+// "data" | "ack" | "error" | number
+
+enum Kind {
+  Unknown = 0,
+  Data = 1,
+  Ack = 2,
+}
+enumOf(u8, Kind, enumOf.reject); // Kind, with membership checked
+enumOf(u8, Kind, Kind.Unknown); // Unknown raw values become Kind.Unknown
+
+const Tag = { Data: "DATA", Ack: "ACK!" } as const;
+enumOf(string(4), Tag, enumOf.keep); // "DATA" | "ACK!" | string
+```
+
+The third argument is required unless every raw value is named. Coverage is proved only for `bits(1)` through `bits(8)`, `u8`, and `i8`; wider codecs, strings, and tables with dynamic types need a policy. `enumOf.reject` fails on unknown raw values, `enumOf.keep` keeps them, and a declared name or member is a fallback. A fallback is lossy: decoding an unknown byte as `Kind.Unknown` and encoding it again writes `0`.
+
+Enums of bit fields share bytes with adjacent bit fields. Their decoded names can select a `match`:
+
+```ts
+import { bin, bits, enumOf, match, string, u8 } from "binopsy";
+
+const TaggedPacket = bin()
+  .field("kind", enumOf(bits(2), ["data", "ack"], enumOf.reject))
+  .field("flags", bits(6))
+  .field("body", match("kind").case("data", string(u8)).case("ack", u8));
+
+TaggedPacket.encode({ kind: "data", flags: 1, body: "Hi" }); // [1, 2, 72, 105]
+// Output: { kind: "data"; flags: number; body: string }
+//       | { kind: "ack"; flags: number; body: number }
+```
+
+Numeric enum members work as case values too: `match("kind").case(Kind.Data, …)`. `keep` leaves an open raw-value arm; with a numeric enum, that arm can overlap a named numeric case, so an `otherwise` branch cannot be narrowed away by that tag alone.
+
 ## Decode a stream
 
 Messages arrive from a socket, or records from a file, in chunks that do not line up with them. `decodeStream` decodes the values as the chunks arrive. With the `Message` above, and a size before each:
@@ -462,6 +507,7 @@ Field names are unique: adding a name twice throws when the parser is defined (T
 | `u8`, `i8`, `u16le`, `i32be`, `f32le`, `f64be`, … | Integers of 8, 16, 24 and 32 bits and floats, little (`le`) or big (`be`) endian (`f32` rounds numbers to 32 bits)      |
 | `u64le`, `i64be`, …                               | 64-bit integers, as `bigint`                                                                                            |
 | `bits(width)`                                     | Numbers of 1 to 53 bits, as direct parser fields (consecutive bit fields share bytes)                                   |
+| `enumOf(codec, table, policy?)`                   | Named raw values or enum members, with rejection, preservation, or a declared fallback for unknown values               |
 | `bytes(length)`                                   | `Uint8Array`s, viewing the input (`new Uint8Array(b)` copies them)                                                      |
 | `string(length, options?)`                        | Strings stored in `length` bytes (see [strings](#strings))                                                              |
 | `string({ terminator, max?, encoding? })`         | Strings ending with a terminator, of at most `max` bytes                                                                |
@@ -514,9 +560,23 @@ For other representations of bytes, such as hex, use `map(bytes(length), …)`.
 
 ### Bit fields
 
-Use `.field("flags", bits(3))`. `bits(width)` is only supported as a direct parser field: standalone use, arrays such as `array(bits(4), 2)`, and wrappers throw when compiled. For arrays of packed records, use `array(bin().field("a", bits(4)).field("b", bits(4)), 2)`. Its standalone `size` is `NaN`; the parser computes the size of each whole-byte run.
+Use `.field("flags", bits(3))`. `enumOf`, `map`, `literal`, and `refine` can wrap bit fields and retain their packing. These codecs require a direct parser field: standalone use and arrays such as `array(bits(4), 2)` are type errors (and throw when compiled from JavaScript). For arrays of packed records, use `array(bin().field("a", bits(4)).field("b", bits(4)), 2)`. A bit codec's `size` is `NaN`; the parser computes the size of each whole-byte run.
 
 The bit fields of a merged parser continue the run (if they have the same bit order: adjoining runs of different orders throw); those of nested parsers, of merged matches, and of merged parsers that compute or pick fields start at a byte.
+
+### Enums
+
+`enumOf(codec, table, policy?)` takes one of three table forms:
+
+- An array of string or boolean names: its index is the raw value. Empty arrays, holes and duplicate names are errors.
+- An object with only canonical numeric keys (`String(Number(key)) === key`): keys are safe integers, including negative ones, and values are unique string or boolean names.
+- A named object, including a TypeScript enum: homogeneous number, string, or bigint values are both the decoded and encoded members. Aliases are allowed. Numeric keys must be the reverse entries of a numeric enum. Enums mixing numbers and strings are type errors; erased `const enum`s cannot be passed as objects.
+
+The table is read when the codec is defined: later changes to it have no effect. Invalid tables and fallback values throw a `TypeError`, and raw values that an integer codec (`bits(n)`, `u8` to `i32be`) cannot hold throw a `RangeError`. Raw values of other codecs are checked by them when encoding.
+
+The third argument is `enumOf.reject`, `enumOf.keep`, or a name/member declared in the table. The two policy constants are unique symbol sentinels, so they cannot be mistaken for a fallback. An omitted policy is allowed only with complete small-domain coverage; an explicit policy is always allowed. `keep` adds the raw type to the decoded and encoded type. Known names encode to their raw values; raw values pass through the inner encoder's checks. Keeping a raw value preserves its decoded value, not necessarily its original bytes (for example, a padded string is re-encoded with its canonical padding).
+
+Unknown values rejected while decoding produce `DecodeError` with code `"invalid"`, the field's path, and the byte where the field starts. Checks still run under `pick`. Encoding unknown names or members throws `EncodeError`. `literal(enumOf(…), name)` supplies omitted inputs, and later fields and computed fields see the names or members.
 
 ### Fields that functions see
 

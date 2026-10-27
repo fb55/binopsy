@@ -17,6 +17,7 @@ import {
 } from "./compile.ts";
 import { EncodeError } from "./errors.ts";
 import { Primitive } from "./primitives.ts";
+import { Wrapper } from "./wrapper.ts";
 
 /** The names of the fields of type `V` in every variant of `T`. (Mapping `keyof T & string` keeps it from mapping each variant.) */
 export type KeysOf<T, V> = {
@@ -1158,16 +1159,6 @@ export function sized<
   return new Sized(checked(length as AnyLength), codec) as never;
 }
 
-/** A codec that reads `inner` and checks or converts its values. */
-abstract class Wrapper extends Codec {
-  protected readonly inner: AnyCodec;
-
-  constructor(inner: AnyCodec, checks = inner.checks) {
-    super(inner.size, checks, inner.reads);
-    this.inner = inner;
-  }
-}
-
 type Scalar = string | number | bigint | boolean;
 
 class Literal extends Wrapper {
@@ -1203,15 +1194,18 @@ class Literal extends Wrapper {
 
   emitRead(g: Gen, wanted: boolean): string {
     const at = g.let(g.at());
-    const v = this.inner.emitRead(g, true);
+    return this.readValue(g, this.inner.emitRead(g, true), at, wanted);
+  }
+
+  protected readValue(g: Gen, v: string, at: string, wanted: boolean): string {
     g.check(this.differs(g, v), "invalid", this.mismatch(v), at);
     return wanted ? g.k(this.value) : "";
   }
 
-  emitWrite(g: Gen, value: string): void {
+  protected writeValue(g: Gen, value: string): string {
     g.line(`if (${value} === undefined) ${value} = ${g.k(this.value)};`);
     g.check(this.differs(g, value), "invalid", this.mismatch(value));
-    this.inner.emitWrite(g, value);
+    return value;
   }
 
   private mismatch(value: string): string {
@@ -1227,10 +1221,16 @@ class Literal extends Wrapper {
  * @param value The value: a string, number, bigint or boolean.
  * @returns A codec of `value`.
  */
-export function literal<O, I, Ctx, const V extends O & Scalar>(
-  codec: Codec<O, I, Ctx>,
+export function literal<
+  O,
+  I,
+  Ctx,
+  const V extends O & Scalar,
+  P extends boolean = false,
+>(
+  codec: Codec<O, I, Ctx, P>,
   value: V,
-): Codec<V, [V] extends [I] ? V | undefined : never, Ctx> &
+): Codec<V, [V] extends [I] ? V | undefined : never, Ctx, P> &
   Defaulted<[V] extends [I] ? true : false> {
   return new Literal(codec, value) as never;
 }
@@ -1251,7 +1251,10 @@ class Refine extends Wrapper {
 
   emitRead(g: Gen, wanted: boolean): string {
     const at = g.let(g.at());
-    const v = this.inner.emitRead(g, true);
+    return this.readValue(g, this.inner.emitRead(g, true), at, wanted);
+  }
+
+  protected readValue(g: Gen, v: string, at: string, wanted: boolean): string {
     g.check(
       `!${g.callbackAt(at, this.test, v)}`,
       "invalid",
@@ -1269,7 +1272,7 @@ class Refine extends Wrapper {
     fillIn(g, this.inner, value);
   }
 
-  emitWrite(g: Gen, value: string): void {
+  protected writeValue(g: Gen, value: string): string {
     fillIn(g, this.inner, value);
     if (g.mode !== "size") {
       g.check(
@@ -1278,7 +1281,7 @@ class Refine extends Wrapper {
         JSON.stringify(this.message),
       );
     }
-    this.inner.emitWrite(g, value);
+    return value;
   }
 }
 
@@ -1287,16 +1290,16 @@ type SameDomain<I, O> = [I] extends [O]
   : "refine needs a codec that encodes what it decodes";
 
 /** Values that pass `test`, when decoding and encoding (others fail with `message`); a type guard narrows them. */
-export function refine<O, I, Ctx, N extends O>(
-  codec: Codec<O, I, Ctx> & SameDomain<I, O>,
+export function refine<O, I, Ctx, N extends O, P extends boolean = false>(
+  codec: Codec<O, I, Ctx, P> & SameDomain<I, O>,
   test: (value: O) => value is N,
   message?: string,
-): Codec<N, I & N, Ctx>;
-export function refine<O, I, Ctx>(
-  codec: Codec<O, I, Ctx> & SameDomain<I, O>,
+): Codec<N, I & N, Ctx, P>;
+export function refine<O, I, Ctx, P extends boolean = false>(
+  codec: Codec<O, I, Ctx, P> & SameDomain<I, O>,
   test: (value: O) => boolean,
   message?: string,
-): Codec<O, I, Ctx>;
+): Codec<O, I, Ctx, P>;
 export function refine(
   codec: AnyCodec,
   test: (value: unknown) => boolean,
@@ -1305,6 +1308,7 @@ export function refine(
   return new Refine(codec, test, message);
 }
 
+/** Conversion callbacks around an inner codec. @internal */
 class Mapped extends Wrapper {
   private readonly toValue: (raw: unknown) => unknown;
   private readonly toRaw: ((value: unknown) => unknown) | undefined;
@@ -1322,18 +1326,32 @@ class Mapped extends Wrapper {
   emitRead(g: Gen, wanted: boolean): string {
     if (!wanted) return this.inner.emitRead(g, false);
     const at = g.let(g.at());
-    return g.callbackAt(at, this.toValue, this.inner.emitRead(g, true));
+    return this.readValue(g, this.inner.emitRead(g, true), at, wanted);
   }
 
-  emitWrite(g: Gen, value: string): void {
+  protected readValue(
+    g: Gen,
+    raw: string,
+    at: string,
+    wanted: boolean,
+  ): string {
+    return wanted ? g.callbackAt(at, this.toValue, raw) : "";
+  }
+
+  override emitWrite(g: Gen, value: string): void {
+    const raw = this.writeValue(g, value);
+    if (this.toRaw) this.inner.emitWrite(g, raw);
+  }
+
+  protected writeValue(g: Gen, value: string): string {
     if (!this.toRaw) {
       g.fail(
         "invalid",
         '"this value can only be decoded (it has no encode function)"',
       );
-      return;
+      return "undefined";
     }
-    this.inner.emitWrite(g, g.callback(this.toRaw, value));
+    return g.callback(this.toRaw, value);
   }
 }
 
@@ -1341,14 +1359,14 @@ class Mapped extends Wrapper {
  * Values converted both ways (the input is the decoded type, unless `encode`
  * takes another one), or, without `encode`, only when decoding.
  */
-export function map<Raw, RawIn, Ctx, O, I = O>(
-  codec: Codec<Raw, RawIn, Ctx>,
+export function map<Raw, RawIn, Ctx, O, I = O, P extends boolean = false>(
+  codec: Codec<Raw, RawIn, Ctx, P>,
   convert: { decode: (value: Raw) => O; encode: (value: I) => RawIn },
-): Codec<O, I, Ctx>;
-export function map<Raw, RawIn, Ctx, O>(
-  codec: Codec<Raw, RawIn, Ctx>,
+): Codec<O, I, Ctx, P>;
+export function map<Raw, RawIn, Ctx, O, P extends boolean = false>(
+  codec: Codec<Raw, RawIn, Ctx, P>,
   convert: { decode: (value: Raw) => O },
-): Codec<O, never, Ctx>;
+): Codec<O, never, Ctx, P>;
 export function map(
   codec: AnyCodec,
   convert: {

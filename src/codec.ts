@@ -26,18 +26,25 @@ export type Defaulted<D extends boolean = true> = { readonly [defaulted]: D };
 
 /** Types only: a codec that reads no fields around it (so it decodes and encodes on its own). */
 export type Standalone = {
-  readonly [types]: { context: (ctx: unknown) => void };
+  readonly [types]: { context: (ctx: unknown) => void; packed: false };
 };
 
 /**
  * Decodes bytes into values of type `O`, and encodes values of type `I`.
  * `Ctx` is the type of the earlier fields the codec reads (e.g.
  * `bytes("count")`); only codecs that read none decode and encode on their own.
+ * `Packed` marks codecs that instead need a direct parser field.
  */
-export abstract class Codec<O = unknown, I = O, Ctx = unknown> {
+export abstract class Codec<
+  O = unknown,
+  I = O,
+  Ctx = unknown,
+  Packed extends boolean = false,
+> {
   /** Types only: what the codec decodes to, encodes, and depends on. */
   declare readonly [types]: {
     output: O;
+    packed: Packed;
     input: (value: I) => void;
     context: (ctx: Ctx) => void;
   };
@@ -51,7 +58,7 @@ export abstract class Codec<O = unknown, I = O, Ctx = unknown> {
   /** A match whose cases are parsers, if this codec can merge their fields. @internal */
   declare readonly merged?: (AnyCodec & Merged) | undefined;
   /** Optional packing of consecutive parser fields. @internal */
-  declare readonly packing?: Pick<Bits, "layout" | "decodeRun" | "encodeRun">;
+  declare readonly packing?: Bits;
   #decoder: Compiled | undefined;
   #bufferDecoder: Compiled | undefined;
   #encoder: Encoder | undefined;
@@ -234,13 +241,19 @@ export abstract class Codec<O = unknown, I = O, Ctx = unknown> {
 }
 
 /** Any codec (inputs and contexts are contravariant, so their top type is `never`). */
-export type AnyCodec = Codec<unknown, never, never>;
+export type AnyCodec = Codec<unknown, never, never, boolean>;
 /** A codec argument (not `AnyCodec`: TypeScript would infer its `never` context for codecs written in the argument). */
-export type AnyCase = { readonly [types]: object };
+export type AnyCase = { readonly [types]: { packed?: false } };
 /** The type `C` decodes to. */
 export type Output<C> = C extends { readonly [types]: { output: infer O } }
   ? O
   : never;
+/** Whether a codec needs a direct parser field. */
+export type Packing<C> = C extends {
+  readonly [types]: { packed: infer P extends boolean };
+}
+  ? P
+  : false;
 /** The type `C` encodes. */
 export type Input<C> = C extends {
   readonly [types]: { input: (value: infer I) => void };
