@@ -1,20 +1,10 @@
 /**
- * Compiles codecs to JavaScript: each codec emits code that reads
- * (`Codec#emitRead`) and writes (`Codec#emitWrite`) its values, and each
- * parser becomes one function per mode and selection.
- *
- * Generated functions access `buf` (and `dv`, a `DataView` of it) at `o`.
- * Fixed-size values use constant offsets from `o`, which is only advanced
- * when needed, and consecutive fixed-size fields share one bounds check.
- *
- * - Decoders read a value at `cur.offset`, up to `cur.end`.
- * - Resumable decoders (used by streams) are generators: instead of failing
- *   at the end of the input, they yield the offset they need to reach, and
- *   continue once the cursor holds that many bytes.
- * - Encoders write the value `v` at `w.offset`, growing the writer as needed.
- *
- * Functions of codecs that read fields of the parser they are in (and do
- * not hold them) get those fields as an object, `s`.
+ * Generated functions access `buf` (and `dv`, a `DataView` of it) at `o`,
+ * which only advances when needed: fixed-size values use constant offsets
+ * from it, and share one bounds check. Decoders read from the cursor `cur`
+ * up to `end`; resumable ones (for streams) are generators that yield the
+ * offset they need instead of failing. Encoders write `v` with the writer
+ * `w`. Functions of codecs that read fields around them get those as `s`.
  */
 import type { AnyCodec, Cursor, Writer } from "./codec.ts";
 import {
@@ -31,13 +21,13 @@ export const ALL_FIELDS = Symbol("all fields");
 /** Earlier fields a codec reads (callbacks do not erase the named requirements). */
 export type Reads = readonly (string | typeof ALL_FIELDS)[];
 
-/** What a parser decodes: every field, or none (it only steps over the value). */
+/** `"none"` steps over the value (still running its checks). */
 export type Selection = "all" | "none";
 
 /**
- * Buffer decoding shares a DataView over the input backing buffer.
- * Tracing is decoding that records where each field is (in `cur.trace`);
- * sizing is encoding without writing (or checking): only the offset moves.
+ * `buffer` decodes through a view of the input's whole buffer; `trace`
+ * records spans in `cur.trace`; `size` only moves the offset (without
+ * writing, or checking other than sizes).
  */
 export type Mode = "decode" | "buffer" | "resume" | "trace" | "encode" | "size";
 
@@ -45,24 +35,18 @@ export type Decoder = (cur: Cursor, scope?: object) => unknown;
 export type Encoder = (w: Writer, value: unknown, scope?: object) => void;
 type Compiled = (...args: never[]) => unknown;
 
-/** Compiled functions, by mode, whether they get the fields around them, codec and selection. */
+/** By `${mode} ${scope}` (whether the function gets the fields around it), codec and selection. */
 const caches = new Map<string, WeakMap<AnyCodec, Map<Selection, Compiled>>>();
-/** The cache entries added while compiling, which are removed if compiling fails. */
+/** Entries added by the outermost compilation in progress (stubs, too), removed if it fails. */
 let added: [Map<Selection, Compiled>, Selection][] | undefined;
 
-/**
- * Whether `codec` reads fields around it (so its function gets them).
- *
- * @param codec The codec to check.
- * @returns `true` if it reads any field, by name or all of them.
- */
 export function scoped(codec: AnyCodec): boolean {
   return codec.reads.length > 0;
 }
 
 /**
- * The function for `codec` in `mode` (decoding `selection`), compiled on
- * first use; that of a codec `inner` to a parser gets its fields, if it reads them.
+ * Compiled on first use. The function of an `inner` codec (called by a
+ * parser's) gets the fields it reads around it; others may read none.
  */
 export function compile(
   codec: AnyCodec,
@@ -82,7 +66,6 @@ export function compile(
   selection: Selection = "all",
   inner = false,
 ): Compiled {
-  // Functions of codecs in a parser get its fields, if they read them.
   const scope = inner && scoped(codec);
   const key = `${mode} ${scope}`;
   let byCodec = caches.get(key);
@@ -131,7 +114,7 @@ export function compile(
 
 const NEGATIVE_ZERO = Symbol("-0");
 
-/** Fields read together, with the offsets each starts and ends at (bit fields may share bytes). */
+/** Fields checked together, to locate an end of input in the first one it cuts (bit fields may share bytes). */
 export type Run = readonly (readonly [
   name: string,
   start: number,
@@ -139,20 +122,20 @@ export type Run = readonly (readonly [
 ])[];
 
 /**
- * The generator of one function: codecs emit its code through it, while it
- * tracks the offset, the bytes already checked, and the fields in scope.
+ * Generates one function. Its methods take and return JavaScript source:
+ * expressions, and names of variables ("" for no value).
  */
 export class Gen {
   readonly mode: Mode;
-  /** Whether emitted reads use the cursor's DataView. */
+  /** Whether reads use `dv` (in `buffer` mode, at offsets plus `base`). */
   usesView = false;
-  /** Locals holding the fields of the parser being compiled (when encoding, the values being encoded). */
+  /** The variables of fields by name (when encoding, of the values being encoded). */
   fields = new Map<string, string>();
-  /** When the variables of fields of merged matches hold them (those of other cases do not). */
+  /** For variables of fields of merged matches: when they hold them (other cases leave them unset). */
   readonly present = new Map<string, string>();
-  /** The object holding the fields around the parser, if it gets them. */
+  /** The variable of the fields around the parser, if the function gets them. */
   scope: string | undefined;
-  /** The field being emitted (for errors). */
+  /** The field being emitted, for the paths of errors and traces. */
   field: string | undefined;
   /** Variables of the array indexes inside the field. */
   private indexes: string[] = [];
@@ -177,13 +160,6 @@ export class Gen {
     return this.mode === "encode" || this.mode === "size";
   }
 
-  /**
-   * Emits code recording where the current field is, when tracing.
-   *
-   * @param start An expression of its offset.
-   * @param v The variable holding its value ("" if it is stepped over).
-   * @param end An expression of the offset after it.
-   */
   trace(start: string, v: string, end = this.at()): void {
     this.line(
       `cur.trace.push({ path: [${["...cur.tracePath", ...this.pathOf()].join(", ")}], start: ${start}, end: ${end}, value: ${v || "undefined"} });`,
@@ -191,10 +167,10 @@ export class Gen {
   }
 
   /**
-   * When tracing, adds the path of the current field to that of the value,
-   * for a function decoding the field (until `traced`).
+   * When tracing, before calling a function decoding the current field:
+   * prefixes the paths it records with the field's (until `traced`).
    *
-   * @returns The variable holding the length of the path before, or "".
+   * @returns The variable of the length of the path before, or "".
    */
   mark(): string {
     if (this.mode !== "trace") return "";
@@ -204,21 +180,10 @@ export class Gen {
     return before;
   }
 
-  /**
-   * Removes the path `mark` added.
-   *
-   * @param mark The variable `mark` returned.
-   */
   traced(mark: string): void {
     if (mark) this.line(`cur.tracePath.length = ${mark};`);
   }
 
-  /**
-   * Emits code that sees no fields around it.
-   *
-   * @param emit Emits the code.
-   * @returns What `emit` returns.
-   */
   isolated<T>(emit: () => T): T {
     const { fields, scope } = this;
     this.fields = new Map();
@@ -230,20 +195,14 @@ export class Gen {
     }
   }
 
-  /**
-   * Emits a statement writing bytes (none when sizing).
-   *
-   * @param statement The code of the statement.
-   */
   write(statement: string): void {
     if (this.mode !== "size") this.line(statement);
   }
 
   /**
-   * The name of a constant holding `value`.
-   *
-   * @param value The value, of any type.
-   * @returns The name, the same for equal values (as by `Object.is`).
+   * @param value Any value.
+   * @returns The name of a constant holding it, the same for equal values
+   *   (as by `Object.is`).
    */
   k(value: unknown): string {
     // (Keys of maps are equal as with `===`, which -0 is to 0.)
@@ -256,24 +215,13 @@ export class Gen {
     return name;
   }
 
-  /**
-   * A new variable holding `expr`.
-   *
-   * @param expr An expression of the value.
-   * @param keyword How the variable is declared (`let` if it is set later).
-   * @returns The name of the variable.
-   */
   let(expr: string, keyword: "const" | "let" = "const"): string {
     const v = `v${this.vars++}`;
     this.line(`${keyword} ${v} = ${expr};`);
     return v;
   }
 
-  /**
-   * A new variable, declared at the start of the function.
-   *
-   * @returns The name of the variable.
-   */
+  /** @returns A new variable, declared at the start of the function. */
   hoist(): string {
     const v = `h${this.hoisted.length}`;
     this.hoisted.push(v);
@@ -285,10 +233,8 @@ export class Gen {
   }
 
   /**
-   * The offset `k` bytes after the current position.
-   *
-   * @param k The number of bytes, or an expression of it.
-   * @returns An expression of the offset.
+   * @param k A number of bytes, or an expression of it.
+   * @returns An expression of the offset `k` bytes after the position.
    */
   at(k: number | string = 0): string {
     if (typeof k === "string") {
@@ -302,22 +248,16 @@ export class Gen {
     return this.mode === "buffer" ? `${this.at()} + base` : this.at();
   }
 
-  /**
-   * Whether a previous bounds check already covers `n` bytes at this position.
-   *
-   * @param n The number of bytes.
-   * @returns `true` if the bytes need no check of their own.
-   */
   available(n: number): boolean {
     return this.pos + n <= this.checked;
   }
 
   /**
-   * Ensures that `n` more bytes can be read (or written); `run` names the
-   * fields they belong to, for errors.
+   * Emits a bounds check of `n` more bytes, unless an earlier one covers
+   * them: encoders grow the writer, and resumable decoders wait for input.
    *
-   * @param n The number of bytes, or an expression of it.
-   * @param run The fields of the bytes, with the offsets they start and end at.
+   * @param n A number of bytes, or an expression of it.
+   * @param run The fields of the bytes.
    */
   need(n: number | string, run?: Run): void {
     if (this.mode === "size") return;
@@ -348,11 +288,6 @@ export class Gen {
     }
   }
 
-  /**
-   * Moves past `n` bytes.
-   *
-   * @param n The number of bytes, or an expression of it.
-   */
   skip(n: number | string): void {
     if (typeof n === "number") {
       this.pos += n;
@@ -363,19 +298,12 @@ export class Gen {
     }
   }
 
-  /**
-   * Moves to `offset`, known only at run time (so no bytes after it are
-   * known to be checked).
-   *
-   * @param offset An expression of the offset.
-   */
   seek(offset: string): void {
     this.flush();
     this.line(`o = ${offset};`);
     this.checked = 0;
   }
 
-  /** Advances `o` to the current position. */
   flush(): void {
     if (!this.pos) return;
     this.line(`o += ${this.pos};`);
@@ -384,8 +312,7 @@ export class Gen {
   }
 
   /**
-   * Emits `head { body tail`; positions inside and after it are only known at
-   * run time.
+   * Positions inside and after the block are only known at run time.
    *
    * @param head The code before the brace, e.g. `if (…)`.
    * @param body Emits the code inside the block.
@@ -402,10 +329,8 @@ export class Gen {
   }
 
   /**
-   * Emits a loop over an index from 0 to `count` (without one, until the
-   * body breaks); `each` bytes are available in each iteration.
-   *
-   * @param count An expression of the number of iterations, or `undefined`.
+   * @param count An expression of the number of iterations, or `undefined`
+   *   to loop until the body breaks.
    * @param body Emits the code of an iteration, given the index's variable.
    * @param each The number of bytes known to be available in an iteration.
    */
@@ -421,8 +346,8 @@ export class Gen {
   }
 
   /**
-   * Emits the code of a parser inlined at the current position: its fields
-   * are its own (and it sees those around it).
+   * For a parser inlined at the position: its fields are its own, and it
+   * sees those around it.
    *
    * @param emit Emits the parser's code.
    * @returns What `emit` returns.
@@ -441,9 +366,6 @@ export class Gen {
   }
 
   /**
-   * Emits a call of the function of `codec` at the current position:
-   * decoding (`wanted` or not) or encoding `value`; returns the value.
-   *
    * @param codec The codec whose function is called.
    * @param arg Whether the value is wanted, or (encoding) an expression of it.
    * @returns The variable holding the decoded value, or "" if there is none.
@@ -478,10 +400,8 @@ export class Gen {
   }
 
   /**
-   * Emits code waiting for the end of the input; returns the number of bytes
-   * left.
-   *
-   * @returns The variable holding the number of bytes after the position.
+   * @returns The variable of the number of bytes after the position, once
+   *   the input is final (decoders throw `MORE` before, resumable ones wait).
    */
   rest(): string {
     this.line(
@@ -493,8 +413,8 @@ export class Gen {
   }
 
   /**
-   * Emits a call of a function (of the user's, or one that may throw);
-   * returns its value.
+   * Calls a function that may throw (e.g. the user's): its errors are
+   * located at the current field.
    *
    * @param fn The function to call.
    * @param args Expressions of its arguments.
@@ -505,7 +425,8 @@ export class Gen {
   }
 
   /**
-   * Calls a function whose failure belongs to the value beginning at `at`.
+   * For conversions: a failure is located at the start of the value, read
+   * before.
    *
    * @param at An expression of the offset of the value.
    * @param fn The function to call.
@@ -523,8 +444,6 @@ export class Gen {
   }
 
   /**
-   * Emits a check that fails if `failed` holds (decoding: at offset `at`).
-   *
    * @param failed An expression that is true if the value is wrong.
    * @param code The code of the `DecodeError` (when decoding).
    * @param detail An expression of the error's detail.
@@ -545,24 +464,10 @@ export class Gen {
     );
   }
 
-  /**
-   * Emits a statement that fails.
-   *
-   * @param code The code of the `DecodeError` (when decoding).
-   * @param detail An expression of the error's detail.
-   */
   fail(code: DecodeError["code"], detail: string): void {
     this.line(`throw ${this.error(code, detail)};`);
   }
 
-  /**
-   * An expression of the error of a failure at the current field.
-   *
-   * @param code The code of the `DecodeError` (when decoding).
-   * @param detail An expression of the error's detail.
-   * @param at An expression of the offset of the error.
-   * @returns A `DecodeError`, or (encoding) an `EncodeError`.
-   */
   private error(
     code: DecodeError["code"],
     detail: string,
@@ -573,23 +478,14 @@ export class Gen {
       : `new ${this.k(DecodeError)}(${JSON.stringify(code)}, ${detail}, ${at}, ${this.path()})`;
   }
 
-  /**
-   * What decoding throws at the end of the input: `error`, or `MORE` if more
-   * input may follow.
-   *
-   * @param error An expression of the error.
-   * @returns An expression of the value to throw.
-   */
   private ending(error: string): string {
     return `cur.final ? ${error} : ${this.k(MORE)}`;
   }
 
   /**
-   * An object of the fields before the current one (and around the parser),
-   * for callbacks.
-   *
-   * @param reads The fields the object holds (by default, all of them).
-   * @returns The variable holding the object.
+   * @param reads The fields to hold (by default, all of them).
+   * @returns The variable of an object of the fields before the current one
+   *   (and around the parser), for functions of them.
    */
   context(reads: Reads = [ALL_FIELDS]): string {
     const named = new Map<string, string>();
@@ -614,8 +510,6 @@ export class Gen {
   }
 
   /**
-   * The expression of field `name` (of the parser, or around it).
-   *
    * @param name The name of the field.
    * @returns Its variable, or a property of the object of outer fields.
    */
@@ -636,12 +530,6 @@ export class Gen {
     );
   }
 
-  /**
-   * Builds the function; decoders return `result`.
-   *
-   * @param result An expression of the decoded value, or "" for `undefined`.
-   * @returns The compiled function.
-   */
   build(result: string): Compiled {
     this.flush();
     const s = this.scope === undefined ? "" : `, ${this.scope}`;
@@ -679,10 +567,8 @@ export class Gen {
   }
 
   /**
-   * Statements reloading the buffer, which the stream or a growing writer
-   * (moving the offset) may have replaced.
-   *
-   * @returns The code of the statements, for the mode.
+   * @returns Statements reloading the buffer, which a stream or a growing
+   *   writer (moving the offset) may have replaced.
    */
   reload(): string {
     return this.encoding
@@ -691,10 +577,8 @@ export class Gen {
   }
 
   /**
-   * Emits a statement whose errors are located at the current field (and then
-   * runs `always`).
-   *
-   * @param statement The code of the statement.
+   * @param statement A statement whose errors are located at the current
+   *   field.
    * @param always Code run after the statement, even if it throws.
    * @param at An expression of the offset where decoding errors are located.
    */
@@ -706,11 +590,6 @@ export class Gen {
     this.line(`try { ${statement} } catch (e) { throw ${located}; }${end}`);
   }
 
-  /**
-   * The location of the current field, as an array expression.
-   *
-   * @returns An array of the field names and index variables, as code.
-   */
   path(): string {
     return `[${this.pathOf().join(", ")}]`;
   }
@@ -738,16 +617,6 @@ function ended(
   );
 }
 
-/**
- * The end of input within a run of fields starting at `start`: in the first
- * field it cuts.
- *
- * @param start The offset where the run starts.
- * @param end The offset where the input ends.
- * @param run The fields, with the offsets (from `start`) they end at.
- * @param path The location of the run.
- * @returns The error, in the first field that does not fit.
- */
 function runEnded(
   start: number,
   end: number,

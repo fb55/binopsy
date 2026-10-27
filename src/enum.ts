@@ -1,4 +1,3 @@
-/** Named wire values, with an explicit policy for unknown values. */
 import { Bits } from "./bits.ts";
 import type {
   AnyCodec,
@@ -130,9 +129,8 @@ function defineEnum<
  * under `pick`), `enumOf.keep` (they decode and encode as they are), or a
  * name or member, which they decode as (lossy: it encodes to its own raw
  * value). The policy may be omitted only if the table names every raw value;
- * TypeScript proves this for `bits(1)` to `bits(5)`. Encoding a value not in
- * the table throws an `EncodeError`. An `enumOf` of a bit field is a bit
- * field. See the README section on enums.
+ * TypeScript proves this for `bits(1)` to `bits(5)`. See the README section
+ * on enums.
  *
  * @param codec The codec of the raw values, e.g. `u8` or `bits(2)`.
  * @param values The table. It is read when the codec is defined: later
@@ -149,11 +147,6 @@ function defineEnum<
  * enumOf(bits(2), ["low", "normal", "high", "reserved"]); // Every value named
  * enumOf(u8, { 1: "data", 2: "ack" }, enumOf.reject); // "data" | "ack"
  * enumOf(u8, { 1: "data", 2: "ack" }, enumOf.keep); // "data" | "ack" | number
- * enum Kind {
- *   Unknown = 0,
- *   Data = 1,
- * }
- * enumOf(u8, Kind, Kind.Unknown); // Other bytes decode as Kind.Unknown
  */
 export const enumOf = /* @__PURE__ */ Object.assign(defineEnum, {
   /**
@@ -168,32 +161,17 @@ export const enumOf = /* @__PURE__ */ Object.assign(defineEnum, {
   keep,
 } as const);
 
-/**
- * A value as written in code: strings quoted.
- *
- * @param value The value.
- * @returns Its spelling.
- */
 function display(value: unknown): string {
   return typeof value === "string" ? JSON.stringify(value) : String(value);
 }
 
-/**
- * Whether a property name is how a number is written.
- *
- * @param key The property name.
- * @returns Whether `Number(key)` spells it.
- */
 function numeric(key: string): boolean {
   return String(Number(key)) === key;
 }
 
 /**
- * The raw values and decoded values of a table (taken when the codec is
- * defined), each way.
- *
- * @param table An array, an object of numbers, or an enum.
- * @returns Maps from raw to decoded values and back.
+ * @param table An array, an object of names by number, or an enum.
+ * @returns Maps from raw to decoded values, and back.
  */
 function normalize(table: Table): [Map<Value, Value>, Map<Value, Value>] {
   const forward = new Map<Value, Value>();

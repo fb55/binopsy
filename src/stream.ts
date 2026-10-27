@@ -17,12 +17,8 @@ type Chunks = AsyncIterator<Uint8Array> | Iterator<Uint8Array>;
  * Decodes values of `codec` one after the other from chunks of bytes, as
  * they arrive: values may span any number of chunks. The iteration ends
  * with the source; leaving it (`break`, or an error) closes the source.
- *
- * Every value must take at least one byte; a value that reads up to the end
- * of the input (e.g. `bytes(Infinity)`) ends with the stream. `bytes` values
- * view the chunks: they stay valid as long as the source does not reuse
- * them. Functions in the codec may run twice for a value, as it is first
- * decoded as if its chunk held all of it. See the README section on streams.
+ * `bytes` values view the chunks: they stay valid as long as the source does
+ * not reuse them. See the README section on streams.
  *
  * @param codec The codec of the values; it must read no fields around it.
  * @param source Any iterable or async iterable of `Uint8Array`s: a Node.js
@@ -162,10 +158,8 @@ class Values<O> implements AsyncIterableIterator<O, undefined> {
   }
 
   /**
-   * Ends the iteration with decoding error `e` (with offsets in the stream),
-   * closing the source.
-   *
-   * @param e The thrown value.
+   * @param e The thrown value; a `DecodeError` is moved to offsets in the
+   *   stream.
    * @param decode Whether `e` is from decoding (else it is rethrown as it is).
    */
   private async fail(e: unknown, decode = true): Promise<never> {
@@ -177,11 +171,6 @@ class Values<O> implements AsyncIterableIterator<O, undefined> {
     throw error;
   }
 
-  /**
-   * Closes the source (once).
-   *
-   * @returns A promise resolved once the source is closed.
-   */
   private close(): Promise<void> {
     if (this.closing) return this.closing;
     if (this.closed) return Promise.resolve();
@@ -191,11 +180,7 @@ class Values<O> implements AsyncIterableIterator<O, undefined> {
       .then(() => undefined));
   }
 
-  /**
-   * The next value in the chunks read so far, or `MORE`.
-   *
-   * @returns The decoded value, or `MORE` if another chunk is needed.
-   */
+  /** @returns The next value in the chunks read so far, or `MORE`. */
   private take(): O | typeof MORE {
     const { cur } = this;
     if (this.pending) {

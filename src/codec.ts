@@ -1,10 +1,4 @@
-/**
- * The base of all codecs, and the cursor and writer they work on.
- *
- * Codecs are compiled: they emit the JavaScript that decodes and encodes
- * their values (see compile.ts), so that each parser becomes a few
- * specialized functions.
- */
+/** Codecs are compiled: they emit the JavaScript of their values (see compile.ts). */
 import type { Merged } from "./bin.ts";
 import type { Bits } from "./bits.ts";
 import {
@@ -21,7 +15,6 @@ import { EncodeError, type Path } from "./errors.ts";
 export declare const types: unique symbol;
 /** Types only: marks codecs whose input may be omitted, as they supply a value (literals). */
 export declare const defaulted: unique symbol;
-/** Types only: codecs that supply their value when encoding `undefined`. */
 export type Defaulted<D extends boolean = true> = { readonly [defaulted]: D };
 
 /** Types only: a codec that reads no fields around it (so it decodes and encodes on its own). */
@@ -31,15 +24,10 @@ export type Standalone = {
 
 /**
  * A codec: decodes bytes to values of type `O`, and encodes values of type
- * `I`. Parsers and matches are codecs too.
- *
- * `Ctx` is the type of the fields the codec reads from the parser around it
+ * `I`. `Ctx` is the type of the fields it reads from the parser around it
  * (`bytes("count")` reads `count`): only codecs that read none decode and
  * encode on their own. `Packed` marks bit fields, which only work as direct
  * parser fields.
- *
- * A codec compiles to JavaScript when first used, once for each way it is
- * used (decoding, encoding, sizing, streaming, …): a millisecond or two each.
  */
 export abstract class Codec<
   O = unknown,
@@ -62,7 +50,7 @@ export abstract class Codec<
   readonly size: number;
   /** Whether decoding checks something, so the value is read even when it is not wanted. @internal */
   readonly checks: boolean;
-  /** The earlier fields the codec reads. @internal */
+  /** @internal */
   readonly reads: Reads;
   /** A match whose cases are parsers, if this codec can merge their fields. @internal */
   declare readonly merged?: (AnyCodec & Merged) | undefined;
@@ -85,9 +73,7 @@ export abstract class Codec<
   }
 
   /**
-   * The value encoding `undefined` writes (for literals), if any.
-   *
-   * @returns An object holding the value, or `undefined` if there is none.
+   * @returns The value encoding `undefined` writes (for literals), if any.
    * @internal
    */
   get preset(): { readonly value: unknown } | undefined {
@@ -145,13 +131,12 @@ export abstract class Codec<
 
   /**
    * Decodes the value at `offset` of `bytes`; bytes after it are ignored.
-   * `bytes` fields of the value are views of the input, not copies.
    *
-   * @param bytes The input (a `Uint8Array`, such as a Node.js `Buffer`).
+   * @param bytes The input.
    * @param offset Where the value starts (default 0).
    * @returns The value (never a part of one: decoding throws instead).
-   * @throws {DecodeError} If the input ends inside the value, or holds an
-   *   invalid one: with the `code`, `path` and `offset` of the failure.
+   * @throws {DecodeError} If the input ends inside the value or holds an
+   *   invalid one, with the `code`, `path` and `offset` of the failure.
    * @throws {RangeError} If `offset` is outside `bytes`.
    */
   decode(this: Standalone, bytes: Uint8Array, offset = 0): O {
@@ -161,9 +146,8 @@ export abstract class Codec<
   }
 
   /**
-   * Encodes `value`, checking it: numbers must fit their codecs, arrays and
-   * bytes their lengths, and text its strings. Counts and sizes read before
-   * a value are written from the value.
+   * Encodes `value`, after checking that it fits the format. Counts and sizes
+   * read before a value are written from the value.
    *
    * @param value The value to encode (it is not changed).
    * @returns A view of the bytes, in an `ArrayBuffer`. Small results share a
@@ -221,10 +205,9 @@ export abstract class Codec<
 
   /**
    * The number of bytes `value` encodes to, computed without encoding it
-   * (except for `custom` codecs without a `size`, which are encoded).
-   *
-   * A codec of a fixed size returns its `size` without looking at the value.
-   * Most checks of encoding are skipped, so encoding may still fail.
+   * (except for `custom` codecs without a `size`). A codec of a fixed size
+   * returns its `size` without looking at the value. Most checks of encoding
+   * are skipped, so encoding may still fail.
    *
    * @param value The value to measure.
    * @returns The number of bytes `encode` writes for it.
@@ -247,9 +230,7 @@ export abstract class Codec<
   }
 
   /**
-   * The compiled decoder of the whole value.
-   *
-   * @returns The decoder, compiled on first use.
+   * @returns The decoder of the whole value, compiled on first use.
    * @internal
    */
   decoder(): Compiled {
@@ -257,8 +238,6 @@ export abstract class Codec<
   }
 
   /**
-   * The compiled encoder.
-   *
    * @returns The encoder, compiled on first use.
    * @internal
    */
@@ -339,9 +318,8 @@ export interface Span {
  *
  * Every field of every parser in the value has a span, in the order they
  * were decoded, a field after the fields inside it (`["items", 0, "name"]`,
- * then `["items"]`). Bit fields have the bytes of their run. Fields that `pick`
- * steps over have `value: undefined`, and arrays it steps over without
- * visiting their items have no spans for them.
+ * then `["items"]`). Bit fields have the bytes of their run. Fields that
+ * `pick` steps over have `value: undefined`.
  *
  * @param codec The codec of the value; it must read no fields around it.
  * @param bytes The input.
@@ -367,7 +345,6 @@ export function trace(
   return cur.trace;
 }
 
-/** The buffer of writers that only size values. */
 const NOTHING = new Uint8Array(0);
 
 /**
@@ -388,9 +365,7 @@ function forget(): void {
 }
 
 /**
- * A `DataView` of `bytes`.
- *
- * @param bytes The bytes to view.
+ * @param bytes Any bytes.
  * @returns The last view if it is of the same bytes, else a new one.
  */
 export function viewOf(bytes: Uint8Array): DataView {
@@ -513,8 +488,6 @@ export class Writer {
   }
 
   /**
-   * Starts writing to `bytes` at `offset`.
-   *
    * @param bytes The buffer to write to.
    * @param offset Where the first byte is written (the new `base`).
    */
@@ -527,11 +500,7 @@ export class Writer {
     this.base = offset;
   }
 
-  /**
-   * Makes room for `n` more bytes.
-   *
-   * @param n The number of bytes to be written at the current offset.
-   */
+  /** @param n The number of bytes to be written at the current offset. */
   room(n: number): void {
     if (this.offset + n <= this.bytes.length) return;
     if (!Number.isSafeInteger(this.offset + n)) {
@@ -551,11 +520,7 @@ export class Writer {
     this.offset = written.length;
   }
 
-  /**
-   * The bytes written so far.
-   *
-   * @returns A view of the bytes from `base` to the current offset.
-   */
+  /** @returns A view of the bytes from `base` to the current offset. */
   written(): Uint8Array {
     return this.bytes.subarray(this.base, this.offset);
   }
@@ -569,11 +534,9 @@ const pool = {
   busy: false,
 
   /**
-   * Encodes `value` with `w`, whose buffers (the pool's, or grown ones) are
-   * `ArrayBuffer`s.
-   *
-   * @param encoder The compiled encoder of the codec.
-   * @param w The writer to encode with.
+   * @param encoder The encoder of a codec.
+   * @param w A writer whose buffers (the pool's, or grown ones) are
+   *   `ArrayBuffer`s.
    * @param value The value to encode.
    * @returns A view of the bytes written.
    */
@@ -590,8 +553,6 @@ const pool = {
 };
 
 /**
- * Emits code filling in an omitted value with the default `codec` gives.
- *
  * @param g The generator of the function.
  * @param codec The codec of the value.
  * @param value The variable holding the value.

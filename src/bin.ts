@@ -251,20 +251,14 @@ export interface Struct<T, I = T, Ctx = unknown> extends Codec<T, I, Ctx> {
    * reads and checks the whole value (literals, refinements, …).
    *
    * Fields that later lengths or tags name are decoded too (but not
-   * returned); a function giving a length or condition may read any earlier
-   * field, so all the fields before it are. Without names, it steps over
-   * whole values, e.g. to count them. The result only decodes (also in
-   * streams and `Reader`s), and takes no more fields.
+   * returned). Without names, it steps over whole values, e.g. to count them.
+   * The result only decodes, and takes no more fields.
    *
    * @param names The fields to decode.
    * @returns A parser decoding objects of the named fields.
    * @throws {Error} If the parser has no field of a name (when defined).
    * @example
-   * const Song = bin()
-   *   .u32le("id")
-   *   .field("title", string(u8))
-   *   .field("cover", bytes(u32le))
-   *   .f64le("duration");
+   * const Song = bin().u32le("id").field("title", string(u8)).f64le("duration");
    * const Summary = Song.pick("id", "duration"); // { id: number; duration: number }
    */
   pick<const Names extends readonly Keys<T>[]>(
@@ -290,8 +284,6 @@ export interface Bin<T, I = T, Ctx = unknown>
    * fields filled in). A match on an earlier field makes the objects a union,
    * with a variant for each case.
    *
-   * Consecutive bit fields share bytes; other fields start at the next byte.
-   *
    * @param name The name of the field, unique in the parser.
    * @param codec The codec of its value.
    * @returns A new parser, with the field added.
@@ -299,12 +291,7 @@ export interface Bin<T, I = T, Ctx = unknown>
    *   JavaScript, if `codec` reads a field that is not before it (when first
    *   used).
    * @example
-   * bin()
-   *   .u8("count")
-   *   .field("ratings", array(u16le, "count"))
-   *   .field("version", bits(4))
-   *   .field("flags", bits(4))
-   *   .field("data", bytes((o) => o.count * 2));
+   * bin().u8("count").field("data", bytes((o) => o.count * 2));
    */
   field<const K extends string, O, In, X = never, D extends boolean = false>(
     name: K,
@@ -331,17 +318,12 @@ export interface Bin<T, I = T, Ctx = unknown>
    * union), or a match whose cases are parsers: the fields of the case are
    * added, and the objects become a union with a variant for each case. The
    * merged parser may read fields of this one, which it declares:
-   * `bin<{ length: number }>()`. A parser computing fields still computes
-   * them from its own fields.
-   *
-   * The bit fields of a merged parser continue a run of this one's (in the
-   * same bit order); those of a match, or of a parser that computes, picks or
-   * aligns fields, start at a byte.
+   * `bin<{ length: number }>()`.
    *
    * @param other A parser, or a match of parsers.
    * @returns A new parser, with the fields added.
    * @throws {Error} If a field name is taken (the cases of one match may
-   *   share names), or adjoining bit fields have different bit orders (when
+   *   share names), or adjoining bit fields have different orders (when
    *   defined).
    * @example
    * const Message = bin()
@@ -418,7 +400,7 @@ export interface Bin<T, I = T, Ctx = unknown>
    *
    * `compute` gets the value without the field (and without omitted
    * literals), and must not return `undefined`. The parser takes no more
-   * fields: compute several with `computed({ … })`.
+   * fields.
    *
    * @param name The field to compute.
    * @param compute Computes the field from the value being encoded.
@@ -450,10 +432,7 @@ export interface Bin<T, I = T, Ctx = unknown>
    *   .u16le("size")
    *   .field("items", array(u16le, "count"))
    *   .field("data", bytes("size"))
-   *   .computed({
-   *     count: (packet) => packet.items.length,
-   *     size: (packet) => packet.data.length,
-   *   });
+   *   .computed({ count: (p) => p.items.length, size: (p) => p.data.length });
    * Packet.encode({ items: [1], data: Uint8Array.of(2) }); // Uint8Array [1, 1, 0, 1, 0, 2]
    */
   computed<const K extends keyof I & string>(fields: {
@@ -481,9 +460,8 @@ export interface BinOptions {
 /**
  * An empty parser: a codec of objects, defined field by field. Each method
  * adds a field, and returns a new parser typed from the fields before it.
- *
- * Fields are decoded and encoded in order. Lengths, counts, tags and
- * conditions may name earlier fields, which TypeScript checks.
+ * Lengths, counts, tags and conditions may name earlier fields, which
+ * TypeScript checks.
  *
  * @param options `bitOrder`: whether bit fields take the most (`"msb"`, the
  *   default) or the least (`"lsb"`) significant bits of a byte first.
@@ -529,7 +507,7 @@ export function bin(options: BinOptions = {}): unknown {
 export type Order = "msb" | "lsb";
 type Compute = (value: Obj) => unknown;
 
-/** A parser entry. @internal */
+/** @internal */
 export type Entry =
   | {
       readonly kind: "field";
@@ -543,11 +521,9 @@ export type Entry =
   | { readonly kind: "pad"; readonly size: number; readonly align: boolean };
 
 /**
- * The names of fields an entry adds (of every case).
- *
- * @param entry The entry of a parser.
+ * @param entry An entry of a parser.
  * @param definite Whether to leave out the fields of only some cases.
- * @returns The names, each once.
+ * @returns The names of the fields it adds, each once.
  */
 function names(entry: Entry, definite = false): string[] {
   return entry.kind === "pad"
@@ -558,7 +534,7 @@ function names(entry: Entry, definite = false): string[] {
 }
 
 /**
- * Adds an entry's dependencies and names, checking that none is already taken.
+ * Also checks that no name is taken.
  *
  * @param entry The entry being added.
  * @param own The names of the fields before it.
@@ -583,7 +559,7 @@ function addNames(
   for (const name of names(entry, true)) definite.add(name);
 }
 
-/** A parser at run time: a list of entries. @internal */
+/** @internal */
 export class Parser extends Codec<Obj> {
   readonly entries: readonly Entry[];
   readonly order: Order;
@@ -638,17 +614,14 @@ export class Parser extends Codec<Obj> {
   }
 
   /**
-   * Whether it aligns fields after fields of varying sizes.
-   *
-   * @returns `true` if it does, from its start.
+   * @returns Whether it aligns fields after fields of varying sizes (after
+   *   fixed sizes, aligning is skipping).
    */
   private get aligns(): boolean {
     return this.entries.some((entry) => entry.kind === "pad" && entry.align);
   }
 
   /**
-   * The names of the fields it outputs.
-   *
    * @param definite Whether to leave out the fields of only some cases.
    * @returns The names in order (if it decodes some fields, those).
    */
@@ -731,12 +704,6 @@ export class Parser extends Codec<Obj> {
     );
   }
 
-  /**
-   * The parser with entries added, which must add new fields.
-   *
-   * @param entries The entries to add.
-   * @returns A new parser.
-   */
   private add(entries: readonly Entry[]): Parser {
     if (this.computes || this.selection) {
       throw new Error(
@@ -761,12 +728,6 @@ export class Parser extends Codec<Obj> {
     else g.call(this, value);
   }
 
-  /**
-   * Emits code encoding the object in variable `value`.
-   *
-   * @param g The generator of the function.
-   * @param value The variable holding the value (checked to be an object).
-   */
   private encodeObject(g: Gen, value: string): void {
     g.check(
       `typeof ${value} !== "object" || ${value} === null`,
@@ -788,8 +749,7 @@ export class Parser extends Codec<Obj> {
   }
 
   /**
-   * Emits code decoding the fields; returns the parts of the object (with
-   * the `wanted` fields). Fields of `later` ones are decoded too.
+   * Fields that `later` names are decoded too, but not returned.
    *
    * @param g The generator of the function.
    * @param wanted The names of the fields in the object.
@@ -852,8 +812,7 @@ export class Parser extends Codec<Obj> {
   }
 
   /**
-   * Emits code decoding a parser added to another (its own fields are only
-   * its own).
+   * For a parser merged into another: its own fields stay its own.
    *
    * @param g The generator of the function.
    * @param wanted The names of the fields in the object.
@@ -880,10 +839,8 @@ export class Parser extends Codec<Obj> {
   }
 
   /**
-   * Emits code encoding the fields of the object in variable `object`.
-   *
    * @param g The generator of the function.
-   * @param object The variable holding the object.
+   * @param object The variable of the object.
    * @param supplied The variables of fields computed around it, by name.
    */
   encodeFields(
@@ -954,8 +911,6 @@ export class Parser extends Codec<Obj> {
 }
 
 /**
- * Emits code skipping bytes (writing zeros when encoding).
- *
  * @param g The generator of the function.
  * @param entry The bytes: a number of them, or an alignment.
  * @param start The variable of the offset of the parser in the value.
@@ -976,21 +931,14 @@ function pad(
 }
 
 /**
- * An expression of the current offset in the value being decoded or encoded
- * (which a growing writer moves in its buffer).
- *
  * @param g The generator of the function.
- * @returns The offset in the input, or in the bytes being written.
+ * @returns An expression of the offset in the value (when encoding, from
+ *   `w.base`, which a growing writer moves).
  */
 function valueOffset(g: Gen): string {
   return g.encoding ? `${g.at()} - w.base` : g.at();
 }
 
-/**
- * The dependencies of an entry.
- * @param entry The parser entry.
- * @returns Its dependencies (padding reads none).
- */
 function readsOf(entry: Entry): Reads {
   return entry.kind === "pad" ? [] : entry.codec.reads;
 }
@@ -1010,7 +958,7 @@ export interface Field {
 }
 
 /**
- * Builds an object from decoded fields, delegating variants to their codec.
+ * Merged matches build objects of their own variants.
  *
  * @param g The generator of the function.
  * @param parts The fields in order.
@@ -1035,12 +983,10 @@ export function objectOf(
 }
 
 /**
- * The fields of `value` named `keys` (those it has), for computations.
- *
  * @param value The object being encoded.
- * @param keys The names of the fields to take.
+ * @param keys The fields to take, if `value` has them.
  * @param supplied Values of fields computed around it, which take precedence.
- * @returns A new object of the fields.
+ * @returns A new object, for computations.
  */
 function project(
   value: Readonly<Record<string, unknown>>,
@@ -1059,12 +1005,10 @@ function project(
 }
 
 /**
- * The bytes the fixed-size fields from `i` on take (with where each ends, for
- * errors).
- *
  * @param entries The entries of a parser.
- * @param i The index of the first field.
- * @returns The number of bytes, and the fields with the offsets they start and end at.
+ * @param i The index of a field.
+ * @returns The bytes the fixed-size fields from `i` on take, and the fields
+ *   (for errors).
  */
 function run(
   entries: readonly Entry[],

@@ -524,7 +524,7 @@ Field names are unique: adding a name twice throws when the parser is defined (T
 | `custom({ decode, encode?, size? })`              | A codec of functions of your own                                                                                        |
 | `fail(message)`                                   | Nothing: decoding and encoding fail (e.g. for parts that are not supported)                                             |
 
-Every codec has `decode`, `encode`, `encodeInto` and `sizeOf`, and `size`: the size of every value in bytes, or `NaN` if it varies (or, for `lazy`, is not known yet).
+Every codec has `decode`, `encode`, `encodeInto` and `sizeOf`, and `size`: the size of every value in bytes, or `NaN` if it varies (and always for `lazy`).
 
 ### Lengths
 
@@ -562,7 +562,7 @@ For other representations of bytes, such as hex, use `map(bytes(length), …)`.
 
 Use `.field("flags", bits(3))`. `enumOf`, `map`, `literal`, and `refine` can wrap bit fields and retain their packing. These codecs require a direct parser field: standalone use and arrays such as `array(bits(4), 2)` are type errors (and throw when compiled from JavaScript). For arrays of packed records, use `array(bin().field("a", bits(4)).field("b", bits(4)), 2)`. A bit codec's `size` is `NaN`; the parser computes the size of each whole-byte run.
 
-The bit fields of a merged parser continue the run (if they have the same bit order: adjoining runs of different orders throw); those of nested parsers, of merged matches, and of merged parsers that compute or pick fields start at a byte.
+The bit fields of a merged parser continue the run (if they have the same bit order: adjoining runs of different orders throw); those of nested parsers, of merged matches, and of merged parsers that compute or pick fields, or align after fields of varying sizes, start at a byte.
 
 ### Enums
 

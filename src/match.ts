@@ -1,4 +1,3 @@
-/** Matches: codecs picked by a tag, an earlier field or a value computed from them. */
 import { Parser, objectOf, type Piece, type structured } from "./bin.ts";
 import {
   Codec,
@@ -149,9 +148,6 @@ type Selector<Ctx> =
  *   .u8("type")
  *   .field("value", match("type").case(1, i32le).case(2, string(u32le)));
  * // { type: 1; value: number } | { type: 2; value: string }
- * const Body = match((o: { kind: number }) => o.kind & 0xf)
- *   .case(1, u8)
- *   .otherwise(bytes(Infinity));
  */
 export function match<
   Ctx = never,
@@ -172,19 +168,13 @@ export function match<
 
 const scalars = new Set(["string", "number", "bigint", "boolean"]);
 
-/**
- * The JavaScript of `value`, as a `case` label.
- *
- * @param value The tag value of a case.
- * @returns A literal of the value.
- */
 function label(value: Value): string {
   if (typeof value === "string") return JSON.stringify(value);
   if (typeof value === "bigint") return `${value}n`;
   return Object.is(value, -0) ? "0" : String(value);
 }
 
-/** One of several codecs, picked by a tag (or `otherwise`, for other tag values). @internal */
+/** @internal */
 export class Match extends Codec {
   override readonly merged: this | undefined;
   readonly codecs: readonly AnyCodec[];
@@ -293,11 +283,9 @@ export class Match extends Codec {
   }
 
   /**
-   * Emits a `switch` on the tag, with `body` for each case (the index of
-   * `otherwise` is that after the cases).
-   *
    * @param g The generator of the function.
-   * @param body Emits the code of a case, given its codec and index.
+   * @param body Emits the code of a case, given its codec and index (that of
+   *   `otherwise` is after the cases').
    */
   emitSwitch(g: Gen, body: (codec: AnyCodec, i: number) => void): void {
     const tag =

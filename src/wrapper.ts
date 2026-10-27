@@ -1,8 +1,7 @@
-/** Conversions and checks that can also surround a packed bit field. */
 import { Codec, type AnyCodec } from "./codec.ts";
 import type { Gen } from "./compile.ts";
 
-/** Shared scalar conversions, including packed fields. @internal */
+/** Conversions and checks of another codec's values, which may be a bit field. @internal */
 export abstract class Wrapper extends Codec<
   unknown,
   unknown,

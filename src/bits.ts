@@ -1,4 +1,3 @@
-/** Unsigned bit fields, packed into whole-byte runs by their parser. */
 import type { Entry, Order, Piece } from "./bin.ts";
 import { Codec } from "./codec.ts";
 import type { Gen } from "./compile.ts";
@@ -41,7 +40,10 @@ export function bits<const N extends BitWidth>(
 
 type Layout = { size: number; width: number; order: Order };
 
-/** Runtime packing and code generation of bit fields. @internal */
+/**
+ * A parser hands each run of bit fields to the packing of its first one
+ * (`decodeRun`, `encodeRun`). @internal
+ */
 export class Bits extends Codec<number> {
   override readonly packing = this;
   readonly width: number;
@@ -89,9 +91,6 @@ export class Bits extends Codec<number> {
   }
 
   /**
-   * Emits code decoding the bit fields from entry `i` on; returns the index of
-   * the last.
-   *
    * @param g The generator of the function.
    * @param entries The entries of the parser.
    * @param i The index of the first bit field.
@@ -145,9 +144,6 @@ export class Bits extends Codec<number> {
   }
 
   /**
-   * Emits code encoding the bit fields from entry `i` on; returns the index of
-   * the last.
-   *
    * @param g The generator of the function.
    * @param entries The entries of the parser.
    * @param i The index of the first bit field.
@@ -218,11 +214,10 @@ export class Bits extends Codec<number> {
   }
 
   /**
-   * The bit fields from entry `i` on that share bytes.
-   *
    * @param entries The entries of the parser.
    * @param i The index of the first bit field.
-   * @returns Consecutive bit fields; layout has already checked their orders.
+   * @returns The bit fields from `i` on that share bytes (`layout` checked
+   *   their orders).
    */
   private run(
     entries: readonly Entry[],
@@ -242,8 +237,6 @@ export class Bits extends Codec<number> {
 }
 
 /**
- * The expression of the `width` bits `offset` bits into the bytes at `at`.
- *
  * @param at An expression of the offset of the bytes.
  * @param order The order of the bits in a byte.
  * @param offset The number of bits before the field.

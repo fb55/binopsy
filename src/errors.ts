@@ -1,5 +1,3 @@
-/** Errors of decoding and encoding, located by the path of a field (and an offset). */
-
 /** Where a value is: field names and array indexes, e.g. `["items", 3, "name"]`. */
 export type Path = readonly (string | number)[];
 
@@ -7,10 +5,8 @@ export type Path = readonly (string | number)[];
 export const MORE = Symbol("more");
 
 /**
- * A path as written in code, e.g. `items[1].name` or `["a b"]`.
- *
- * @param path The field names and array indexes.
- * @returns The path as code, or "" if it is empty.
+ * @param path Field names and array indexes.
+ * @returns The path as written in code, e.g. `items[1].name` or `["a b"]`.
  */
 function where(path: Path): string {
   return path
@@ -27,8 +23,6 @@ function where(path: Path): string {
 }
 
 /**
- * The message of a failure: its detail, and where it is.
- *
  * @param detail The failure, without its location.
  * @param path The field names and array indexes of the value that failed.
  * @param offset The offset of the value that failed (none when encoding).
@@ -41,12 +35,6 @@ function located(detail: string, path: Path, offset?: number): string {
     : `${detail}${at} at offset ${offset}`;
 }
 
-/**
- * The message of a thrown value.
- *
- * @param e The thrown value.
- * @returns Its message if it is an `Error`, else it converted to a string.
- */
 function messageOf(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
@@ -75,8 +63,7 @@ export class DecodeError extends Error {
   /**
    * A decoding error, e.g. for a `custom` decoder to throw.
    *
-   * @param code What failed: `"end-of-input"`, `"invalid"`, `"no-match"` or
-   *   `"error"`.
+   * @param code What failed (see `code`).
    * @param detail The failure, without its location.
    * @param offset The offset of the value that failed. Thrown by a `custom`
    *   decoder, it is in the bytes the decoder got (binopsy moves it to the

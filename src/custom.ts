@@ -1,4 +1,3 @@
-/** Codecs of functions of the user's, for formats the other codecs cannot express. */
 import { Codec, type AnyCodec } from "./codec.ts";
 import type { Gen } from "./compile.ts";
 import { DecodeError, EncodeError, within } from "./errors.ts";
@@ -36,16 +35,13 @@ export interface CustomOptions<O, I = O> {
 
 /**
  * A codec of functions of your own, for encodings the other codecs cannot
- * express (for a conversion of bytes that other codecs read, `map` is
- * enough).
+ * express.
  *
  * `decode(bytes, final)` returns `{ value, bytesRead }`, or `undefined` if
  * it needs more bytes and `final` is false; without `encode`, the codec only
- * decodes. Errors the functions throw become `DecodeError`s of code
- * `"error"` (or `EncodeError`s) located at the field; a `DecodeError` that
- * `decode` throws keeps its code, with its offset moved from the bytes
- * `decode` got to the input's. See the README section on custom encodings,
- * whose example is a varint.
+ * decodes. A `DecodeError` that `decode` throws keeps its code, and its
+ * offset is moved from the bytes `decode` got to the input's. See the README
+ * section on custom encodings.
  *
  * @param options `decode`, and optionally `encode` and `size`.
  * @returns A codec of the values `decode` returns.
@@ -97,16 +93,13 @@ export function custom(
 type Decode = CustomOptions<unknown>["decode"];
 
 /**
- * Calls `decode` with `bytes[start..end]`; returns its result (checked), or
- * `undefined`.
- *
  * @param decode The decode function of the codec.
  * @param bytes The input.
  * @param start The offset of the value.
  * @param end The offset where the input (or region) ends.
  * @param final Whether no more input will follow.
  * @param size The size of every value, or `NaN` if it varies.
- * @returns The value and its size, or `undefined` if more bytes are needed.
+ * @returns The result of `decode` for `bytes[start..end]`, checked.
  */
 function decodeWith(
   decode: Decode,
@@ -149,8 +142,6 @@ function decodeWith(
 }
 
 /**
- * The bytes `encode` returns for `value` (checked).
- *
  * @param encode The encode function of the codec.
  * @param value The value to encode.
  * @param size The size of every value, or `NaN` if it varies.
@@ -174,11 +165,9 @@ function encodeWith(
 }
 
 /**
- * The size `measure` gives for `value` (checked).
- *
  * @param measure The size function of the codec.
  * @param value The value to measure.
- * @returns The size in bytes.
+ * @returns Its size, checked.
  */
 function measureWith(
   measure: (value: unknown) => number,

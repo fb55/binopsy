@@ -1,4 +1,3 @@
-/** Fixed-size numbers: integers of 8 to 64 bits (64-bit ones as `bigint`) and floats. */
 import { Codec } from "./codec.ts";
 import type { Gen } from "./compile.ts";
 
@@ -34,7 +33,7 @@ const valid: Record<Method, (x: string) => string> = {
   Float64: (x) => `typeof ${x} === "number"`,
 };
 
-/** A number of a fixed size. @internal */
+/** @internal */
 export class Primitive<
   T extends number | bigint = number | bigint,
 > extends Codec<T> {
@@ -55,20 +54,14 @@ export class Primitive<
     this.le = le;
   }
 
-  /**
-   * The byte order argument of `DataView` methods.
-   *
-   * @returns The argument, after a comma (none for bytes).
-   */
+  /** @returns The byte order argument of `DataView` methods, after a comma. */
   private get order(): string {
     return this.size > 1 ? `, ${this.le}` : "";
   }
 
   /**
-   * The bytes of a 24-bit integer at offset `at`, most significant first.
-   *
-   * @param at An expression of the offset.
-   * @returns Indexes into `buf`.
+   * @param at An expression of the offset of a 24-bit integer.
+   * @returns Its bytes in `buf`, most significant first.
    */
   private bytes(at: string): string[] {
     return (this.le ? [2, 1, 0] : [0, 1, 2]).map((i) =>
@@ -77,8 +70,6 @@ export class Primitive<
   }
 
   /**
-   * An expression reading a value at offset `at`.
-   *
    * @param at An expression of the offset.
    * @param viewAt The corresponding position in the DataView.
    * @returns An index into `buf` (for bytes), its bytes combined (for 24
@@ -110,12 +101,9 @@ export class Primitive<
   }
 
   /**
-   * Emits code checking `value` and writing it at offset `at` (which has
-   * room).
-   *
    * @param g The generator of the function.
-   * @param value The variable holding the value.
-   * @param at An expression of the offset.
+   * @param value The variable of the value, which is checked.
+   * @param at An expression of the offset, where there is room.
    */
   store(g: Gen, value: string, at: string): void {
     // `typeof` first: bitwise operators call `valueOf` of objects, and throw
