@@ -86,7 +86,7 @@ describe("Parsers", () => {
 
   it.each(["decode", "encode"] as const)(
     "are compiled again after compiling a lazy codec failed to %s",
-    (direction) => {
+    async (direction) => {
       interface A {
         stop: number;
         child: B | null;
@@ -127,10 +127,9 @@ describe("Parsers", () => {
         ).toThrow(/not ready/u);
       }
       ready = true;
-      const wire = Uint8Array.of(1, 0, 0, 7);
-      const value = { child: { stop: 0, child: null, later: 7 } };
-      expect(b.decode(wire)).toStrictEqual(value);
-      expect(b.encode(value)).toStrictEqual(wire);
+      await roundtrip(b, "01 00 00 07", {
+        child: { stop: 0, child: null, later: 7 },
+      });
     },
   );
 });

@@ -52,6 +52,27 @@ export function bytewise(bytes: Uint8Array): Uint8Array[] {
 export type Standalone = Codec<unknown, never>;
 
 /**
+ * Checks decoding directly and from chunks of one byte.
+ *
+ * @param codec The codec to check.
+ * @param wire The encoded bytes.
+ * @param value The expected decoded value.
+ */
+export async function decodes(
+  codec: Standalone,
+  wire: Uint8Array,
+  value: unknown,
+): Promise<void> {
+  expect(codec.decode(wire)).toStrictEqual(value);
+  // Streams have no values of no bytes.
+  if (wire.length > 0) {
+    await expect(collect(codec, bytewise(wire))).resolves.toStrictEqual([
+      value,
+    ]);
+  }
+}
+
+/**
  * Checks that `codec` decodes `bytes` (hex) to `value`, also when a `Reader`
  * steps over it and from chunks of one byte, and encodes `input` to them.
  *
@@ -67,18 +88,12 @@ export async function roundtrip(
   input: unknown = value,
 ): Promise<void> {
   const wire = hex(bytes);
-  expect(codec.decode(wire)).toStrictEqual(value);
+  await decodes(codec, wire, value);
   expect((codec as Codec<unknown, unknown>).encode(input)).toStrictEqual(wire);
   expect((codec as Codec<unknown, unknown>).sizeOf(input)).toBe(wire.length);
   const reader = new Reader(wire);
   reader.read(bin().field("value", codec).pick());
   expect(reader.offset).toBe(wire.length);
-  // Streams have no values of no bytes.
-  if (wire.length > 0) {
-    await expect(collect(codec, bytewise(wire))).resolves.toStrictEqual([
-      value,
-    ]);
-  }
 }
 
 /** Properties of a `DecodeError`. */

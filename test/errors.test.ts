@@ -28,6 +28,33 @@ const fails = () => {
 };
 
 describe("Decoding errors", () => {
+  it.each<
+    [
+      name: string,
+      codec: Standalone,
+      code: "invalid" | "error",
+      cause?: unknown,
+    ]
+  >([
+    ["literals of regions", literal(sized(2, u8), 7), "invalid"],
+    ["literal strings", literal(string(u8), "a"), "invalid"],
+    ["refined strings", refine(string(u8), () => false), "invalid"],
+    [
+      "strings that functions convert",
+      map(string(u8), { decode: fails }),
+      "error",
+      cause,
+    ],
+    ["strings that functions check", refine(string(u8), fails), "error", cause],
+  ])("are located at the start of %s", (_, codec, code, reason) =>
+    decodeFails(bin().u8("h").field("v", codec), "00 01 62", {
+      code,
+      path: ["v"],
+      offset: 1,
+      ...(reason === undefined ? {} : { cause: reason }),
+    }),
+  );
+
   it.each(["msb", "lsb"] as const)(
     "are located in bit fields sharing bytes, %s first",
     (bitOrder) =>
@@ -75,49 +102,6 @@ describe("Decoding errors", () => {
       Shape,
       "0700 05 01 02 0901 08",
       { code: "end-of-input", message: /in `points/u },
-    ],
-    [
-      "are located at the start of literals of regions",
-      bin()
-        .u8("h")
-        .field("v", literal(sized(2, u8), 7)),
-      "00 01 62",
-      { code: "invalid", path: ["v"], offset: 1 },
-    ],
-    [
-      "are located at the start of literal strings",
-      bin()
-        .u8("h")
-        .field("v", literal(string(u8), "a")),
-      "00 01 62",
-      { code: "invalid", path: ["v"], offset: 1 },
-    ],
-    [
-      "are located at the start of refined strings",
-      bin()
-        .u8("h")
-        .field(
-          "v",
-          refine(string(u8), () => false),
-        ),
-      "00 01 62",
-      { code: "invalid", path: ["v"], offset: 1 },
-    ],
-    [
-      "are located at the start of strings that functions convert",
-      bin()
-        .u8("h")
-        .field("v", map(string(u8), { decode: fails })),
-      "00 01 62",
-      { code: "error", path: ["v"], offset: 1, cause },
-    ],
-    [
-      "are located at the start of strings that functions check",
-      bin()
-        .u8("h")
-        .field("v", refine(string(u8), fails)),
-      "00 01 62",
-      { code: "error", path: ["v"], offset: 1, cause },
     ],
     [
       "report invalid values",

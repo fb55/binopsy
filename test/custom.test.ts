@@ -91,27 +91,25 @@ describe("Custom codecs", () => {
   it.each<[name: string, codec: Standalone, bytes: string, failure: Failure]>([
     [
       "must not read more bytes than they get",
-      bin()
-        .u8("a")
-        .field("b", custom({ decode: () => ({ value: 1, bytesRead: 9 }) })),
+      custom({ decode: () => ({ value: 1, bytesRead: 9 }) }),
       "00 01",
       { path: ["b"], message: /bytesRead 9/u },
     ],
     [
       "must decode values of a fixed size from their bytes",
-      bin()
-        .u8("a")
-        .field("b", custom({ size: 1, decode: () => undefined })),
+      custom({ size: 1, decode: () => undefined }),
       "00 07",
       { code: "invalid", path: ["b"], message: /decode returned undefined/u },
     ],
     [
       "locate the errors they throw",
-      bin().u8("a").field("b", varint),
+      varint,
       "00 ffffffffff",
       { code: "error", path: ["b"], message: /invalid varint in `b`/u },
     ],
-  ])("%s", (_, codec, wire, failure) => decodeFails(codec, wire, failure));
+  ])("%s", (_, codec, wire, failure) =>
+    decodeFails(bin().u8("a").field("b", codec), wire, failure),
+  );
 
   it("must encode to bytes of their size", () => {
     const fixed = custom({

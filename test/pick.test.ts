@@ -15,8 +15,7 @@ import {
   u8,
 } from "../src/index.ts";
 import {
-  bytewise,
-  collect,
+  decodes,
   decodeError,
   decodeFails,
   hex,
@@ -85,12 +84,7 @@ describe("Picked fields", () => {
         .pick("n");
       const parser = bin().merge(group).field("data", bytes("n"));
       const wire = Uint8Array.of(tag, 1, 7);
-      const selected = parser.pick("data");
-      const expected = { data: Uint8Array.of(7) };
-      expect(selected.decode(wire)).toStrictEqual(expected);
-      await expect(collect(selected, bytewise(wire))).resolves.toStrictEqual([
-        expected,
-      ]);
+      await decodes(parser.pick("data"), wire, { data: Uint8Array.of(7) });
       expect(parser.pick().decode(wire)).toStrictEqual({});
       expect(parser.pick("n").decode(wire)).toStrictEqual({ n: 1 });
     },
@@ -222,30 +216,23 @@ describe("Picked groups of nested cases", () => {
           ...input,
         });
         const extended = Uint8Array.of(1, ...wire, 55, 66, 77);
-        const decoded = outer.decode(extended);
-        expect(decoded).toStrictEqual({
+        const decoded = {
           n: 1,
           a: 1,
           b: 31,
           len: 2,
           tail: Uint8Array.of(55),
           after: Uint8Array.of(66, 77),
-        });
-        await expect(collect(outer, bytewise(extended))).resolves.toStrictEqual(
-          [decoded],
-        );
+        };
+        await decodes(outer, extended, decoded);
         for (const keys of [
           [],
           ["tail"],
           ["after"],
           ["len", "after"],
         ] as const) {
-          const picked = outer.pick(...keys);
           const expected = Object.fromEntries(keys.map((k) => [k, decoded[k]]));
-          expect(picked.decode(extended)).toStrictEqual(expected);
-          await expect(
-            collect(picked, bytewise(extended)),
-          ).resolves.toStrictEqual([expected]);
+          await decodes(outer.pick(...keys), extended, expected);
         }
       });
     },

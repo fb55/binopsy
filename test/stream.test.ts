@@ -185,37 +185,38 @@ describe("Streams", () => {
     expect(primary.offset).toBe(77);
   });
 
-  it("stop when returned while a chunk is awaited", async () => {
+  it.each([
+    ["stop when returned while a chunk is awaited", u32le, "01020304", false],
+    ["close their source without waiting for a pending read", u8, "07", true],
+  ] as const)("%s", async (_, codec, wire, closeFirst) => {
     let release!: () => void;
     let returned = 0;
+    const ended = { value: undefined, done: true as const };
     const source: AsyncIterator<Uint8Array> & AsyncIterable<Uint8Array> = {
       [Symbol.asyncIterator]() {
         return this;
       },
       next: () =>
         new Promise((resolve) => {
-          release = () => resolve({ value: hex("01020304"), done: false });
+          release = () => resolve({ value: hex(wire), done: false });
         }),
       return: async () => {
         returned++;
-        return { value: undefined, done: true };
+        return ended;
       },
     };
-    const stream = decodeStream(u32le, source);
+    const stream = decodeStream(codec, source);
     const pending = stream.next();
-    // Return once it awaits the chunk.
     await setImmediate();
     const done = stream.return!();
-    release();
-    await expect(pending).resolves.toStrictEqual({
-      value: undefined,
-      done: true,
-    });
-    await expect(done).resolves.toStrictEqual({ value: undefined, done: true });
-    await expect(stream.next()).resolves.toStrictEqual({
-      value: undefined,
-      done: true,
-    });
+    // Exercise both schedules: release before return settles, or only afterward.
+    if (!closeFirst) release();
+    await expect(done).resolves.toStrictEqual(ended);
+    expect(returned).toBe(1);
+    await expect(stream.next()).resolves.toStrictEqual(ended);
+    if (closeFirst) release();
+    await expect(pending).resolves.toStrictEqual(ended);
+    await expect(stream.next()).resolves.toStrictEqual(ended);
     expect(returned).toBe(1);
   });
 
@@ -224,42 +225,6 @@ describe("Streams", () => {
       [Symbol.asyncIterator]: undefined,
     });
     await expect(collect(u8, source)).resolves.toStrictEqual([1, 2]);
-  });
-
-  it("close their source when returned, without waiting for a pending read", async () => {
-    let release!: () => void;
-    let returned = 0;
-    const source: AsyncIterator<Uint8Array> & AsyncIterable<Uint8Array> = {
-      [Symbol.asyncIterator]() {
-        return this;
-      },
-      next: () =>
-        new Promise((resolve) => {
-          release = () => resolve({ value: Uint8Array.of(7), done: false });
-        }),
-      return: async () => {
-        returned++;
-        return { value: undefined, done: true };
-      },
-    };
-    const stream = decodeStream(u8, source);
-    const pending = stream.next();
-    await setImmediate();
-    await expect(stream.return!()).resolves.toStrictEqual({
-      value: undefined,
-      done: true,
-    });
-    expect(returned).toBe(1);
-    await expect(stream.next()).resolves.toStrictEqual({
-      value: undefined,
-      done: true,
-    });
-    // The read settles later, and its value is dropped.
-    release();
-    await expect(pending).resolves.toStrictEqual({
-      value: undefined,
-      done: true,
-    });
   });
 
   it("share closing their source between concurrent returns", async () => {

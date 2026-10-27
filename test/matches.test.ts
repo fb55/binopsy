@@ -14,8 +14,6 @@ import {
   type Codec,
 } from "../src/index.ts";
 import {
-  bytewise,
-  collect,
   decodeFails,
   hex,
   roundtrip,
@@ -183,12 +181,7 @@ describe("Matches", () => {
       .u8("head")
       .merge(match("head").case(0, Wide).otherwise(Wide))
       .u8("end");
-    const wire = hex(bytes);
-    expect(parser.decode(wire)).toStrictEqual(value);
-    expect(parser.encode(value)).toStrictEqual(wire);
-    await expect(collect(parser, bytewise(wire))).resolves.toStrictEqual([
-      value,
-    ]);
+    await roundtrip(parser, bytes, value);
   });
 
   it("are stepped over to pick the fields after them", () => {

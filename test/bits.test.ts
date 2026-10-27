@@ -10,8 +10,7 @@ import {
   type Codec,
 } from "../src/index.ts";
 import {
-  bytewise,
-  collect,
+  decodes,
   encodeFails,
   hex,
   roundtrip,
@@ -58,12 +57,12 @@ describe("Bit fields", () => {
       .field("data", array(bin().u8("v"), "count"))
       .computed("count", (value) => value.data.length);
     const value = { flag: 2, data: [{ v: 7 }, { v: 8 }] };
-    const wire = counted.encode(value);
-    expect([...wire]).toStrictEqual([1, 0x42, 7, 8]);
-    expect(counted.sizeOf(value)).toBe(4);
-    await expect(collect(counted, bytewise(wire))).resolves.toStrictEqual([
+    await roundtrip(
+      counted,
+      "01 42 07 08",
       { tag: 1, count: 2, ...value },
-    ]);
+      value,
+    );
   });
 
   it.each<[name: string, codec: Standalone, bytes: string, value: unknown]>([
@@ -223,10 +222,7 @@ describe("Bit fields", () => {
           }
         }
         expect(parser.encode(value)).toStrictEqual(wire);
-        expect(parser.decode(wire)).toStrictEqual(value);
-        await expect(collect(parser, bytewise(wire))).resolves.toStrictEqual([
-          value,
-        ]);
+        await decodes(parser, wire, value);
       },
     );
   });
@@ -259,26 +255,16 @@ describe("Bit fields", () => {
       expect(plain.encode({ a: 1, b: 1, c: 1 })).toStrictEqual(
         Uint8Array.of(bitOrder === "msb" ? 193 : 7),
       );
-      const wire =
-        bitOrder === "msb"
-          ? Uint8Array.of(128, 128, 4)
-          : Uint8Array.of(1, 1, 1);
+      const wire = bitOrder === "msb" ? "80 80 04" : "01 01 01";
       const value = { a: 1, b: 1, c: 1 };
       const computed = first
         .merge(part.computed("b", () => 1))
         .field("c", bits(6));
       expect(computed.size).toBe(3);
-      expect(computed.encode({ a: 1, c: 1 })).toStrictEqual(wire);
-      expect(computed.decode(wire)).toStrictEqual(value);
-      await expect(collect(computed, bytewise(wire))).resolves.toStrictEqual([
-        value,
-      ]);
+      await roundtrip(computed, wire, value, { a: 1, c: 1 });
       const picked = first.merge(part.pick("b")).field("c", bits(6));
       expect(picked.size).toBe(3);
-      expect(picked.decode(wire)).toStrictEqual(value);
-      await expect(collect(picked, bytewise(wire))).resolves.toStrictEqual([
-        value,
-      ]);
+      await decodes(picked, hex(wire), value);
     },
   );
 

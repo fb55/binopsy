@@ -19,14 +19,7 @@ import {
   type AnyCodec,
   type Codec,
 } from "../src/index.ts";
-import {
-  bytewise,
-  collect,
-  decodeFails,
-  encodeFails,
-  hex,
-  roundtrip,
-} from "./helpers.ts";
+import { decodeFails, encodeFails, hex, roundtrip } from "./helpers.ts";
 
 // The JavaScript shape emitted by TypeScript for numeric enums, including aliases.
 const Kind = {
@@ -68,7 +61,6 @@ describe("Enums", () => {
     expect(packed.size).toBe(1);
     const tag = enumOf(string(u8), { A: "a", Longer: "long" }, enumOf.reject);
     await roundtrip(tag, "04 6c 6f 6e 67", "long");
-    expect(tag.sizeOf("long")).toBe(5);
     const fixed = define(u8, ["data", "ack"], enumOf.reject);
     expect(fixed.sizeOf("unknown")).toBe(1);
   });
@@ -151,17 +143,14 @@ describe("Enums", () => {
   it("locate validation at the start of the field, even under pick and in streams", async () => {
     const kind = enumOf(u16le, ["data", "ack"], enumOf.reject);
     const record = bin().u8("prefix").field("kind", kind).u8("after");
-    await decodeFails(record, "00 03 00 07", {
-      code: "invalid",
-      path: ["kind"],
-      offset: 1,
-      message: /unknown value 3/u,
-    });
-    await decodeFails(record.pick("after"), "00 03 00 07", {
-      code: "invalid",
-      path: ["kind"],
-      offset: 1,
-    });
+    for (const codec of [record, record.pick("after")]) {
+      await decodeFails(codec, "00 03 00 07", {
+        code: "invalid",
+        path: ["kind"],
+        offset: 1,
+        message: /unknown value 3/u,
+      });
+    }
     await decodeFails(array(record, 2), "00 01 00 07 00 03 00 07", {
       code: "invalid",
       path: [1, "kind"],
@@ -187,20 +176,14 @@ describe("Enums", () => {
         .field("tail", bits(7))
         .u8("after");
       const value = { head: 0, kind: "high" as const, tail: 0, after: 9 };
-      const wire = record.encode(value);
-      expect([...wire]).toStrictEqual(
-        bitOrder === "msb" ? [1, 0, 9] : [0, 1, 9],
-      );
+      const wire = bitOrder === "msb" ? "01 00 09" : "00 01 09";
+      await roundtrip(record, wire, value);
       expect(record.size).toBe(3);
-      expect(record.decode(wire)).toStrictEqual(value);
-      await expect(collect(record, bytewise(wire))).resolves.toStrictEqual([
-        value,
-      ]);
-      expect(record.pick("kind", "after").decode(wire)).toStrictEqual({
+      expect(record.pick("kind", "after").decode(hex(wire))).toStrictEqual({
         kind: "high",
         after: 9,
       });
-      expect(trace(record, wire)).toStrictEqual([
+      expect(trace(record, hex(wire))).toStrictEqual([
         { path: ["head"], start: 0, end: 2, value: 0 },
         { path: ["kind"], start: 0, end: 2, value: "high" },
         { path: ["tail"], start: 0, end: 2, value: 0 },
@@ -216,17 +199,14 @@ describe("Enums", () => {
       .field("kind", enumOf(bits(2), ["low", "normal", "high"], enumOf.reject))
       .field("tail", bits(5))
       .u8("after");
-    await decodeFails(record, "00 00 60 09", {
-      code: "invalid",
-      path: ["kind"],
-      offset: 2,
-      message: /unknown value 3/u,
-    });
-    await decodeFails(record.pick("after"), "00 00 60 09", {
-      code: "invalid",
-      path: ["kind"],
-      offset: 2,
-    });
+    for (const codec of [record, record.pick("after")]) {
+      await decodeFails(codec, "00 00 60 09", {
+        code: "invalid",
+        path: ["kind"],
+        offset: 2,
+        message: /unknown value 3/u,
+      });
+    }
     await decodeFails(record, "00 00", {
       code: "end-of-input",
       path: ["head"],
@@ -265,7 +245,6 @@ describe("Enums", () => {
       { kind: "ack", flags: 2, body: "AB" },
       { flags: 2, body: "AB" },
     );
-    expect(computed.sizeOf({ flags: 2, body: "AB" })).toBe(3);
   });
 
   it("pack nested map, literal and refine wrappers without losing checks or defaults", async () => {
@@ -352,6 +331,48 @@ describe("Enums", () => {
       RangeError,
     );
   });
+
+  it.each<[codec: AnyCodec, table: unknown]>([
+    [bits(1), ["a", "b", "c"]],
+    [bits(1), { A: 2 }],
+    [u8, { Bad: 256 }],
+    [u8, { 256: "bad" }],
+    [i8, { 128: "bad" }],
+  ])(
+    "check bounds at definition time with every policy (%#)",
+    (codec, table) => {
+      for (const policy of [undefined, enumOf.reject, enumOf.keep, "bad"]) {
+        expect(() => define(codec, table, policy)).toThrow(RangeError);
+      }
+    },
+  );
+
+  it.each([
+    ["numeric", { 0: 1 }, /names must be strings or booleans/u],
+    ["named", { Yes: true }, /members must be numbers, strings or bigints/u],
+  ])("reject invalid %s table values", (_, table, message) => {
+    expect(() => define(u8, table, enumOf.reject)).toThrow(message);
+  });
+
+  it.each(["tuple", "numeric", "named"])(
+    "recognize complete 32-value %s tables at runtime",
+    async (form) => {
+      const names = Array.from({ length: 32 }, (_, i) => `v${i}`);
+      const table = (values: readonly string[]) =>
+        form === "tuple"
+          ? values
+          : Object.fromEntries<string | number>(
+              values.map((name, i) =>
+                form === "numeric" ? [i, name] : [name, i],
+              ),
+            );
+      const codec = bin().field("value", define(bits(5), table(names)));
+      await roundtrip(codec, "f8", { value: form === "named" ? 31 : "v31" });
+      expect(() => define(bits(5), table(names.slice(0, -1)))).toThrow(
+        /value 31 has no name/u,
+      );
+    },
+  );
 
   it("preserve decode-only and contextual inner codecs", async () => {
     const read = custom({

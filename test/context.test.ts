@@ -15,10 +15,23 @@ import {
 import {
   bytewise,
   collect,
+  decodes,
   hex,
   roundtrip,
   type Standalone,
 } from "./helpers.ts";
+
+const itemValue = (
+  before: string,
+  n: number,
+  local: string,
+  child: string,
+) => ({
+  before: hex(before),
+  n,
+  local: hex(local),
+  child: { raw: hex(child) },
+});
 
 describe("Fields around codecs", () => {
   it("are fallbacks for named reads after a merged match", async () => {
@@ -184,38 +197,13 @@ describe("Fields around codecs", () => {
       );
     const value: Tree = {
       n: 1,
-      items: [
-        {
-          before: Uint8Array.of(3),
-          n: 2,
-          local: Uint8Array.of(4, 5),
-          child: { raw: Uint8Array.of(6, 7) },
-        },
-        {
-          before: Uint8Array.of(8),
-          n: 0,
-          local: new Uint8Array(),
-          child: { raw: new Uint8Array() },
-        },
-      ],
+      items: [itemValue("03", 2, "0405", "0607"), itemValue("08", 0, "", "")],
       children: [
-        {
-          n: 2,
-          items: [
-            {
-              before: Uint8Array.of(9, 10),
-              n: 1,
-              local: Uint8Array.of(11),
-              child: { raw: Uint8Array.of(12) },
-            },
-          ],
-          children: [],
-        },
+        { n: 2, items: [itemValue("090a", 1, "0b", "0c")], children: [] },
       ],
     };
     const wire = tree.encode(value);
-    expect(tree.decode(wire)).toStrictEqual(value);
-    await expect(collect(tree, bytewise(wire))).resolves.toStrictEqual([value]);
+    await decodes(tree, wire, value);
     // The same parser, as a field and as items.
     const reused = bin()
       .u8("n")
