@@ -1,0 +1,43 @@
+test/enums.test.ts
+  s_b350bca6ad2e38::t_8fccf0c38c7236 341-348,362,366-368
+  s_b350bca6ad2e38::t_1628f7bfdc271d 22,146-153,179-180,182,186,202-209
+  s_b350bca6ad2e38::t_6b459ff7ddb67f 335-340,349-360,370,374-376
+  s_b350bca6ad2e38::t_25c8cb059081eb 361,363-365,369,371-373
+test/matches.test.ts
+  s_b350bca6ad2e38::t_1628f7bfdc271d 184
+test/context.test.ts
+  s_b350bca6ad2e38::t_1628f7bfdc271d 24-35,200,202
+  s_b350bca6ad2e38::t_22933ad969f07e 18,206
+test/stream.test.ts
+  s_b350bca6ad2e38::t_1628f7bfdc271d 188-191,194,201,205,208,212-219
+test/errors.test.ts
+  s_b350bca6ad2e38::t_1628f7bfdc271d 31-57
+test/parsers.test.ts
+  s_b350bca6ad2e38::t_22933ad969f07e 89,130-132
+test/pick.test.ts
+  s_b350bca6ad2e38::t_22933ad969f07e 18,87,219,226-227,235
+test/custom.test.ts
+  s_b350bca6ad2e38::t_22933ad969f07e 94,100,106,110-112
+test/bits.test.ts
+  s_b350bca6ad2e38::t_22933ad969f07e 13,225,258,264,267
+  s_b350bca6ad2e38::t_8fccf0c38c7236 60-62,64-65
+test/helpers.ts
+  s_b350bca6ad2e38::t_22933ad969f07e 55-74,91
+  s_b350bca6ad2e38::t_840d4843e46ce4 54
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3c91dc1dacb64cf1653f7cf09dc2a32bfdca31a1",
+  "prompts": {},
+  "sessions": {
+    "s_b350bca6ad2e38": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a17e2f-8b18-7dd0-9538-54655aecdbf1",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Felix Boehm <188768+fb55@users.noreply.github.com>"
+    }
+  }
+}
