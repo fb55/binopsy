@@ -1,0 +1,38 @@
+design/enum-of/integration.ts
+  s_1a1175064e1ea0::t_f4587ce316d89a 1-21,23-29,32
+  s_1a1175064e1ea0::t_a5d5d31f5eaed4 22
+  s_1a1175064e1ea0::t_fc015710319bb5 30-31
+design/enum-of/run.sh
+  s_1a1175064e1ea0::t_fc015710319bb5 1-14
+design/enum-of/tsconfig.json
+  s_1a1175064e1ea0::t_92aff8a7db7988 1-13,15
+  s_1a1175064e1ea0::t_f4587ce316d89a 14
+design/enum-of/coverage-bench.py
+  s_1a1175064e1ea0::t_408c0585cfc905 1-38
+design/enum-of/runtime.ts
+  s_1a1175064e1ea0::t_92aff8a7db7988 1-44
+  s_1a1175064e1ea0::t_5f7b8427a78ded 45-156
+design/enum-of/types.ts
+  s_1a1175064e1ea0::t_92aff8a7db7988 1,3-20,23-34,40,45-48,50-51,53-57,59-65,69-106,108-116,118-122,126-134
+  s_1a1175064e1ea0::t_f4587ce316d89a 107,117,123-125,168-169
+  s_1a1175064e1ea0::t_ba12bcea2e935e 2,166-167,170-173,177,179-224
+  s_1a1175064e1ea0::t_5476036d531f3f 66-68,144-145,147-165
+  s_1a1175064e1ea0::t_5f7b8427a78ded 174-176,178
+  s_1a1175064e1ea0::t_24deb3b8dbdcb8 21-22,35-39,41-44,49,52,58,135-143,146
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "58ff4742fb2c110fa05c8bee3f9ca493f42515c0",
+  "prompts": {},
+  "sessions": {
+    "s_1a1175064e1ea0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a17c64-dc58-7401-8dcd-5048e3ff6f98",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Felix Boehm <188768+fb55@users.noreply.github.com>"
+    }
+  }
+}
