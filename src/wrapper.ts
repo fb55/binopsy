@@ -11,6 +11,28 @@ export abstract class Wrapper extends Codec<
   declare readonly packing?: NonNullable<AnyCodec["packing"]>;
   protected readonly inner: AnyCodec;
 
+  /**
+   * @param raw A value of the inner codec, given when the codec is defined.
+   * @param what What it is, to start the message with.
+   * @throws {RangeError} If the inner codec is an integer codec that cannot hold it.
+   */
+  protected fits(raw: unknown, what: string): void {
+    const { bounds } = this.inner;
+    if (
+      bounds &&
+      !(
+        Number.isInteger(raw) &&
+        (raw as number) >= bounds[1] &&
+        (raw as number) <= bounds[2]
+      )
+    ) {
+      const shown = typeof raw === "string" ? JSON.stringify(raw) : String(raw);
+      throw new RangeError(
+        `${what} ${shown} is outside ${bounds[0]}, which holds ${bounds[1]}..${bounds[2]}`,
+      );
+    }
+  }
+
   constructor(inner: AnyCodec, checks = false) {
     super(inner.size, checks || inner.checks, inner.reads);
     this.inner = inner;

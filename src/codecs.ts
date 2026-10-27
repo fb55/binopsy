@@ -14,7 +14,7 @@ import {
   type Gen,
   type Reads,
 } from "./compile.ts";
-import { EncodeError } from "./errors.ts";
+import { DecodeError, EncodeError } from "./errors.ts";
 import { Primitive } from "./primitives.ts";
 import { Wrapper } from "./wrapper.ts";
 
@@ -953,6 +953,25 @@ export function array(
   return new List(item, checked(length));
 }
 
+/**
+ * The region holds all its bytes, so a value reaching past its end is
+ * wrong, not cut short: what more input cannot fix is `"invalid"`.
+ *
+ * @param e What decoding the value threw.
+ * @returns `e`, with the end of the region as the cause.
+ */
+function overran(e: unknown): unknown {
+  return e instanceof DecodeError && e.code === "end-of-input"
+    ? new DecodeError(
+        "invalid",
+        e.detail.replace("end of input", "end of its region"),
+        e.offset,
+        e.path,
+        e.cause,
+      )
+    : e;
+}
+
 class Sized extends Codec {
   private readonly length: AnyLength;
   private readonly inner: AnyCodec;
@@ -1003,7 +1022,7 @@ class Sized extends Codec {
     const mark = g.mark();
     g.line(`cur.offset = o; cur.end = o + ${n}; cur.final = true;`);
     g.guard(
-      `${v} = ${fn}(cur${scope});`,
+      `try { ${v} = ${fn}(cur${scope}); } catch (e) { throw ${g.k(overran)}(e); }`,
       `cur.end = ${end}; cur.final = ${final};`,
     );
     g.traced(mark);
@@ -1105,6 +1124,7 @@ class Literal extends Wrapper {
       );
     }
     super(inner, true);
+    this.fits(value, "literal:");
     this.value = value;
   }
 

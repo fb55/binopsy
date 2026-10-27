@@ -438,7 +438,7 @@ try {
 }
 ```
 
-- `code` is `"end-of-input"`, `"invalid"` (a value failed a check, e.g. of a literal), `"no-match"` (a tag without a case), or `"error"` (a function of yours threw; its error is the `cause`).
+- `code` is `"end-of-input"` (the input ends inside a value), `"invalid"` (a value failed a check, e.g. of a literal, or reached past the end of its `sized` region), `"no-match"` (a tag without a case), or `"error"` (a function of yours threw; its error is the `cause`).
 - `refine(codec, test, message?)` adds a check of your own, when decoding and when encoding: `refine(u32be, (width) => width > 0, "width must be positive")`. A type guard as `test` narrows the type.
 - An `EncodeError` has the `path` too, but no offset.
 

@@ -202,6 +202,14 @@ describe("Encoding", () => {
     expect(results.findIndex((result, i) => u32le.decode(result) !== i)).toBe(
       -1,
     );
+    // Like Node.js's pooled buffers, so typed arrays can view them.
+    expect(results.every((result) => result.byteOffset % 8 === 0)).toBe(true);
+  });
+
+  it("rejects literals that the codec cannot hold, when defined", () => {
+    expect(() => literal(u8, 300)).toThrow(
+      "literal: 300 is outside u8, which holds 0..255",
+    );
   });
 
   it("grows its buffer for big values", () => {

@@ -127,7 +127,7 @@ describe("Picked fields", () => {
     const parser = bin().u8("head").field("inner", field).pick();
     expect(parser.decode(Uint8Array.of(9, 1, 0))).toStrictEqual({});
     await decodeFails(parser, "09 02 00", {
-      code: "end-of-input",
+      code: "invalid",
       offset: 2,
       path,
     });

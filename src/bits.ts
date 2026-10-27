@@ -46,6 +46,7 @@ type Layout = { size: number; width: number; order: Order };
  */
 export class Bits extends Codec<number> {
   override readonly packing = this;
+  override readonly bounds: Codec["bounds"];
   readonly width: number;
   /** Optional conversions around the raw bits, supplied by wrappers. */
   declare readonly decodeValue?: (
@@ -59,6 +60,7 @@ export class Bits extends Codec<number> {
   constructor(width: number) {
     super(Number.NaN);
     this.width = width;
+    this.bounds = [`bits(${width})`, 0, 2 ** width - 1];
   }
 
   /**

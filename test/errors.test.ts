@@ -164,7 +164,7 @@ describe("Decoding errors", () => {
       "report the end of a region in its value",
       bin().field("a", sized(1, u16le)).u8("b"),
       "00 00",
-      { code: "end-of-input", message: /unexpected end .* in `a`/u },
+      { code: "invalid", message: /unexpected end of its region .* in `a`/u },
     ],
     [
       "quote names that are not identifiers",

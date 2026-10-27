@@ -56,6 +56,10 @@ export abstract class Codec<
   declare readonly merged?: (AnyCodec & Merged) | undefined;
   /** Optional packing of consecutive parser fields. @internal */
   declare readonly packing?: Bits;
+  /** Integer codecs: their name, and least and greatest values. @internal */
+  declare readonly bounds?:
+    | readonly [name: string, min: number, max: number]
+    | undefined;
   #decoder: Compiled | undefined;
   /** The decoder of `decode`, which views the input's whole buffer (see `readView`). */
   #bufferDecoder: Compiled | undefined;
@@ -152,7 +156,8 @@ export abstract class Codec<
    * @param value The value to encode (it is not changed).
    * @returns A view of the bytes, in an `ArrayBuffer`. Small results share a
    *   buffer with other results (as Node.js does for small `Buffer`s), but
-   *   are never overwritten: `slice()` one for a buffer of its own.
+   *   are never overwritten: `slice()` one for a buffer of its own. Each
+   *   starts at a multiple of 8 bytes, so typed arrays can view it.
    * @throws {EncodeError} If the value cannot be encoded, with the `path` of
    *   the field that failed.
    */
@@ -171,6 +176,8 @@ export abstract class Codec<
     w.start(pool.bytes, pool.used);
     try {
       const bytes = pool.encode(encoder, w, value);
+      // The next result starts at a multiple of 8 bytes, as in Node.js's pool:
+      // typed arrays (such as a Float64Array) need aligned offsets.
       if (w.bytes === pool.bytes) pool.used = (w.offset + 7) & ~7;
       return bytes;
     } finally {

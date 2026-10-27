@@ -1,4 +1,3 @@
-import { Bits } from "./bits.ts";
 import type {
   AnyCodec,
   Codec,
@@ -10,7 +9,6 @@ import type {
 import type { Gen } from "./compile.ts";
 import type { Domain } from "./domain.ts";
 import type { IsUnion, ScalarValue, Value } from "./match.ts";
-import { Primitive } from "./primitives.ts";
 import { Wrapper } from "./wrapper.ts";
 
 type Name = string | boolean;
@@ -218,27 +216,6 @@ function normalize(table: Table): [Map<Value, Value>, Map<Value, Value>] {
   return [forward, inverse];
 }
 
-/**
- * The values an integer codec holds, for bounds and coverage checks.
- *
- * @param inner The codec of raw values.
- * @returns Its name and least and greatest values (`undefined` for codecs
- *   other than `bits(n)` and `u8` to `i32be`).
- */
-function range(inner: AnyCodec): [string, number, number] | undefined {
-  if (inner instanceof Bits) {
-    return [`bits(${inner.width})`, 0, 2 ** inner.width - 1];
-  }
-  if (!(inner instanceof Primitive)) return undefined;
-  const { sign, width } =
-    /^(?<sign>[iu])(?<width>8|16|24|32)/u.exec(inner.name)?.groups ?? {};
-  if (width === undefined) return undefined;
-  const count = 2 ** Number(width);
-  return sign === "u"
-    ? [inner.name, 0, count - 1]
-    : [inner.name, -count / 2, count / 2 - 1];
-}
-
 class Enum extends Wrapper {
   private readonly forward: readonly Value[] | ReadonlyMap<Value, Value>;
   private readonly inverse: ReadonlyMap<Value, Value>;
@@ -246,24 +223,10 @@ class Enum extends Wrapper {
   private readonly rawType: string;
 
   constructor(inner: AnyCodec, table: Table, policy?: Policy<Value>) {
+    super(inner, policy === undefined || policy === reject);
     const [forward, inverse] = normalize(table);
-    const bounds = range(inner);
-    if (bounds) {
-      const [name, min, max] = bounds;
-      for (const raw of forward.keys()) {
-        if (
-          !(
-            Number.isInteger(raw) &&
-            (raw as number) >= min &&
-            (raw as number) <= max
-          )
-        ) {
-          throw new RangeError(
-            `enumOf: raw value ${display(raw)} is outside ${name}, which holds ${min}..${max}`,
-          );
-        }
-      }
-    }
+    for (const raw of forward.keys()) this.fits(raw, "enumOf: raw value");
+    const { bounds } = inner;
     let reason = "the codec has values without names";
     // Coverage is checked for domains of up to 8 bits.
     if (bounds && bounds[2] - bounds[1] <= 255) {
@@ -290,18 +253,19 @@ class Enum extends Wrapper {
         `enumOf: fallback ${display(policy)} is not one of the values`,
       );
     }
-    super(inner, policy === undefined || policy === reject);
     this.policy = policy ?? reject;
     this.inverse = inverse;
     this.rawType = typeof forward.keys().next().value;
-    // Raw values 0 to n - 1 are looked up in an array (without a prototype,
-    // so no raw value finds an inherited property), others in the map.
+    // Raw values 0 to n - 1 of integer codecs are looked up in an array
+    // (without a prototype, so no raw value finds an inherited property);
+    // others in the map, which a string such as "1" does not match.
     const values = Array.from({ length: forward.size }, (_, i) =>
       forward.get(i),
     );
-    this.forward = values.every((value) => value !== undefined)
-      ? (Object.setPrototypeOf(values, null) as Value[])
-      : forward;
+    this.forward =
+      bounds && values.every((value) => value !== undefined)
+        ? (Object.setPrototypeOf(values, null) as Value[])
+        : forward;
   }
 
   protected readValue(

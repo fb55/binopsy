@@ -297,6 +297,11 @@ describe("Enums", () => {
     );
   });
 
+  it("look up raw values by position only for integer codecs", () => {
+    const codec = define(string(1), ["a", "b"], enumOf.reject);
+    expect(() => codec.decode(hex("31"))).toThrow(/unknown value 1/u);
+  });
+
   it("reject tables that are not one-to-one", () => {
     expect(() => define(u8, { 1: "missing", Data: 2 }, enumOf.reject)).toThrow(
       "enumOf: 1 is not the value of a member",

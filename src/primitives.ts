@@ -42,11 +42,18 @@ export class Primitive<
   readonly count: boolean;
   /** Whether reading uses a DataView instead of indexing the bytes. */
   readonly usesView: boolean;
+  override readonly bounds: Codec["bounds"];
   private readonly method: Method;
   private readonly le: boolean;
 
   constructor(name: string, size: number, method: Method, le = false) {
     super(size);
+    const values = 2 ** (8 * size);
+    this.bounds = /^(?:Uint|Int)\d/u.test(method)
+      ? method.startsWith("Uint")
+        ? [name, 0, values - 1]
+        : [name, -values / 2, values / 2 - 1]
+      : undefined;
     this.name = name;
     this.count = method.startsWith("Uint");
     this.usesView = size !== 3 && method !== "Uint8";
