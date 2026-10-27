@@ -1,0 +1,38 @@
+src/primitives.ts
+  s_b350bca6ad2e38::t_c7efc084488ff9 151,153
+src/enum.ts
+  s_b350bca6ad2e38::t_742ac4b129dc11 62,64,73
+  s_b350bca6ad2e38::t_2e8c535dd28903 13,58-61,65-66,70-72,75
+  s_b350bca6ad2e38::t_c7efc084488ff9 34,36-38,47-49,51-57,67-69
+README.md
+  s_b350bca6ad2e38::t_ec2544f2c6d556 245,577
+CHANGELOG.md
+  s_b350bca6ad2e38::t_ec2544f2c6d556 5
+test/types/enums.test-d.ts
+  s_b350bca6ad2e38::t_6bdb14311e01b8 93-124,164-166
+  s_b350bca6ad2e38::t_a785e3846197a3 77-79,82,86,90,195
+  s_b350bca6ad2e38::t_c8b128a181ba2a 80-81,83-85,87-89,91
+  s_b350bca6ad2e38::t_df5650ced972b9 42-73
+  s_b350bca6ad2e38::t_e9072ec046782f 170-172,227-228,350-353
+  s_b350bca6ad2e38::t_c7efc084488ff9 201,216-220,345-349,354
+  s_b350bca6ad2e38::t_ec2544f2c6d556 41,74-76,92,125,159-163,167-169,173-194,196-197,202-215,246
+  s_b350bca6ad2e38::t_1fe4b6a5b5018e 198-199
+src/domain.ts
+  s_b350bca6ad2e38::t_2e8c535dd28903 1
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e6c7a498c7bde778ddb6c2abda7938fb2821527f",
+  "prompts": {},
+  "sessions": {
+    "s_b350bca6ad2e38": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a17e2f-8b18-7dd0-9538-54655aecdbf1",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Felix Boehm <188768+fb55@users.noreply.github.com>"
+    }
+  }
+}
