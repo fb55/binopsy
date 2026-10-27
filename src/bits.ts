@@ -1,5 +1,5 @@
 import type { Entry, Order, Piece } from "./bin.ts";
-import { Codec } from "./codec.ts";
+import { Codec, fillIn } from "./codec.ts";
 import type { Gen } from "./compile.ts";
 import type { BitDomain, WithDomain } from "./domain.ts";
 
@@ -162,6 +162,19 @@ export class Bits extends Codec<number> {
   ): number {
     const fields = this.run(entries, i);
     const total = fields.reduce((n, f) => n + f.packing.width, 0);
+    if (g.mode === "size") {
+      // The run's size is known: only defaults that later fields read are needed.
+      for (const { name, codec } of fields) {
+        const value = g.let(
+          computed.get(name) ?? `${object}[${JSON.stringify(name)}]`,
+          "let",
+        );
+        fillIn(g, codec, value);
+        g.fields.set(name, value);
+      }
+      g.skip(Math.ceil(total / 8));
+      return i + fields.length - 1;
+    }
     const bytes: string[][] = Array.from(
       { length: Math.ceil(total / 8) },
       () => [],

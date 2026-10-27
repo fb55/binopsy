@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   array,
   bin,
+  bits,
   bytes,
   custom,
   lazy,
@@ -21,7 +22,23 @@ import {
 } from "../src/index.ts";
 import { hex } from "./helpers.ts";
 
+const boom = (): never => {
+  throw new Error("boom");
+};
+
 describe("Sizes", () => {
+  it("skip computations and conversions that sizes do not depend on", () => {
+    const checked = bin()
+      .u8("checksum")
+      .field("payload", bytes(u8))
+      .computed("checksum", (): number => boom());
+    expect(checked.sizeOf({ payload: Uint8Array.of(1) })).toBe(3);
+    const converted = bin()
+      .field("x", map(bits(8), { decode: (x) => x, encode: boom }))
+      .field("data", bytes(u8));
+    expect(converted.sizeOf({ x: 1, data: Uint8Array.of(1) })).toBe(3);
+  });
+
   it("skip the checks of encoding, and items of fixed sizes", () => {
     let calls = 0;
     const count =

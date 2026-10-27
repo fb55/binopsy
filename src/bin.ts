@@ -839,6 +839,27 @@ export class Parser extends Codec<Obj> {
   }
 
   /**
+   * @returns The fields that sizes of values depend on: those of variable
+   *   sizes, and those their codecs read.
+   */
+  private sizedBy(): Set<Reads[number]> {
+    const fields = new Set<Reads[number]>();
+    for (const entry of this.entries) {
+      if (
+        entry.kind === "pad" ||
+        (entry.kind === "field" && entry.codec.packing) ||
+        Number.isFinite(entry.codec.size)
+      ) {
+        continue;
+      }
+      for (const name of [...names(entry), ...entry.codec.reads]) {
+        fields.add(name);
+      }
+    }
+    return fields;
+  }
+
+  /**
    * @param g The generator of the function.
    * @param object The variable of the object.
    * @param supplied The variables of fields computed around it, by name.
@@ -853,7 +874,12 @@ export class Parser extends Codec<Obj> {
       return;
     }
     const computed = new Map(supplied);
-    if (this.computes) {
+    // Sizing computes only the fields that sizes depend on.
+    const sizes = g.mode === "size" ? this.sizedBy() : undefined;
+    const computes = this.computes?.filter(
+      ([name]) => !sizes || sizes.has(ALL_FIELDS) || sizes.has(name),
+    );
+    if (computes !== undefined && computes.length > 0) {
       // Functions get the value without the computed fields: the fields of the parser only.
       const input = g.callback(
         project,
@@ -864,7 +890,7 @@ export class Parser extends Codec<Obj> {
           [...supplied].map(([name, v]) => ({ name, v })),
         ),
       );
-      for (const [name, compute] of this.computes) {
+      for (const [name, compute] of computes) {
         g.field = name;
         const key = supplied.get(name) ?? `${object}[${JSON.stringify(name)}]`;
         const v = g.callback(compute, input);
