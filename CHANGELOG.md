@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-`enumOf(codec, table, policy?)` names numeric wire values or checks membership in TypeScript enums and const objects. Unknown raw values can be rejected (`enumOf.reject`), kept (`enumOf.keep`), or decoded as a declared fallback passed directly as the third argument. A policy is required unless a small raw domain is completely covered. Tables are snapshotted and validated when defined; unknown data reports its field and offset, including under `pick`.
+`enumOf(codec, table, policy?)` names numeric wire values or checks membership in TypeScript enums and const objects. Unknown raw values can be rejected (`enumOf.reject`), kept (`enumOf.keep`), or decoded as a declared fallback passed directly as the third argument. A policy is required unless a small raw domain is completely covered. Static coverage proofs are limited to `bits(1)` through `bits(5)` (at most 32 values), using a complete tuple, numeric-key object, or TypeScript enum/const object's member values. Larger codecs, including `u8` and `i8`, and dynamic tables require an explicit policy in TypeScript. Runtime still recognizes complete domains through eight bits and checks integer bounds at definition time. Tables are snapshotted and validated when defined; unknown data reports its field and offset, including under `pick`.
 
 Numeric enum members now work as `match` cases, preserving enum identity and keeping unknown numeric alternatives when subtracting cases.
 

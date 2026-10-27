@@ -1,7 +1,6 @@
 /** Fixed-size numbers: integers of 8 to 64 bits (64-bit ones as `bigint`) and floats. */
 import { Codec } from "./codec.ts";
 import type { Gen } from "./compile.ts";
-import type { I8, U8, WithDomain } from "./domain.ts";
 
 type Method =
   | "Int8"
@@ -149,15 +148,9 @@ function primitive<T extends number | bigint>(
 }
 
 /** Unsigned 8-bit integers. */
-export const u8 = primitive<number>("u8", 1, "Uint8") as WithDomain<
-  Codec<number>,
-  U8
->;
+export const u8 = primitive<number>("u8", 1, "Uint8");
 /** Signed 8-bit integers. */
-export const i8 = primitive<number>("i8", 1, "Int8") as WithDomain<
-  Codec<number>,
-  I8
->;
+export const i8 = primitive<number>("i8", 1, "Int8");
 /** Unsigned 16-bit integers, little endian. */
 export const u16le = primitive<number>("u16le", 2, "Uint16", true);
 /** Unsigned 16-bit integers, big endian. */

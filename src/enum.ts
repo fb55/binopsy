@@ -10,7 +10,7 @@ import type {
 } from "./codec.ts";
 import type { Gen } from "./compile.ts";
 import type { Domain } from "./domain.ts";
-import type { ScalarValue, Value } from "./match.ts";
+import type { IsUnion, ScalarValue, Value } from "./match.ts";
 import { Primitive } from "./primitives.ts";
 import { Wrapper } from "./wrapper.ts";
 
@@ -31,11 +31,11 @@ type Known<T> = T extends readonly Name[]
   ? T[number]
   : T[[Named<T>] extends [never] ? Keys<T> : Named<T>];
 type Wire<T> = T extends readonly Name[]
-  ? number extends T["length"]
-    ? number
-    : Numeric<Exclude<keyof T, keyof (readonly unknown[])>>
+  ? number
   : [Named<T>] extends [never]
-    ? Numeric<Keys<T>>
+    ? Known<T> extends Name
+      ? number
+      : never
     : T[Named<T>];
 type RawKind<T> = [T] extends [number]
   ? number
@@ -44,44 +44,35 @@ type RawKind<T> = [T] extends [number]
     : [T] extends [bigint]
       ? bigint
       : never;
-type ErrorOf<C, T> = [Wire<T>] extends [never]
-  ? "enumOf needs at least one entry"
-  : [Wire<T>] extends [RawKind<Output<C>>]
-    ? [Named<T>] extends [never]
-      ? Known<T> extends Name
-        ? Outside<C, T>
-        : "enum names must be strings or booleans"
-      : Outside<C, T>
-    : "enum values do not match the codec raw type";
-type Outside<C, T> =
-  number extends ScalarValue<Wire<T>>
+type Checked<C, T> = [Known<T>] extends [never]
+  ? never
+  : [Wire<T>] extends [never]
     ? never
-    : Exclude<ScalarValue<Wire<T>>, Domain<C>> extends never
-      ? never
-      : "enum raw values are outside the codec domain";
-type Compatible<C, T> = [Input<C>] extends [never]
-  ? ErrorOf<C, T>
-  : [Output<C>] extends [Input<C>]
-    ? ErrorOf<C, T>
-    : "enumOf needs a codec that encodes what it decodes";
-type Checked<C, T> = [Compatible<C, T>] extends [never]
-  ? unknown
-  : { readonly [K in Compatible<C, T>]: never };
-type Covered<C, T> = string extends keyof T
+    : [Wire<T>] extends [RawKind<Output<C>>]
+      ? [Input<C>] extends [never]
+        ? unknown
+        : [Output<C>] extends [Input<C>]
+          ? unknown
+          : never
+      : never;
+// A union-valued member might name only one of its possible raw values.
+type Members<T> = {
+  [K in Named<T>]: IsUnion<T[K]> extends true ? never : ScalarValue<T[K]>;
+}[Named<T>];
+type Covers<C, V, S = ScalarValue<V>> = number extends S
   ? false
-  : number extends keyof T
-    ? T extends readonly Name[]
-      ? number extends T["length"]
-        ? false
-        : Exclude<Domain<C>, ScalarValue<Wire<T>>> extends never
-          ? true
-          : false
-      : false
-    : number extends ScalarValue<Wire<T>>
+  : Exclude<Domain<C>, S> extends never
+    ? true
+    : false;
+type Covered<C, T> = T extends readonly Name[]
+  ? number extends T["length"]
+    ? false
+    : Covers<C, Numeric<Exclude<keyof T, keyof (readonly unknown[])>>>
+  : string extends keyof T
+    ? false
+    : number extends ScalarValue<keyof T>
       ? false
-      : Exclude<Domain<C>, ScalarValue<Wire<T>>> extends never
-        ? true
-        : false;
+      : Covers<C, [Named<T>] extends [never] ? Numeric<Keys<T>> : Members<T>>;
 const reject = /* @__PURE__ */ Symbol("enumOf.reject");
 const keep = /* @__PURE__ */ Symbol("enumOf.keep");
 type Reject = typeof reject;

@@ -21,8 +21,6 @@ import {
   type Output,
 } from "../../src/index.ts";
 
-declare const allBytes: { readonly [N in Domain<typeof u8>]: `byte${N}` };
-declare const allSignedBytes: { readonly [N in Domain<typeof i8>]: `byte${N}` };
 declare const mixedWidth: 1 | 16;
 declare const asymmetric: Codec<number, string>;
 
@@ -36,18 +34,29 @@ declare enum Tag {
   Ack = "ACK!",
 }
 declare const Mixed: { readonly Data: 1; readonly Ack: "ack" };
-declare enum OutsideByte {
-  Bad = 256,
-}
 declare const decoder: Codec<number, never>;
 declare const dynamic: string[];
 declare const numeric: Record<number, string>;
 declare const named: Record<string, number>;
+declare enum Bit {
+  Off = 0,
+  On = 1,
+}
+/** The names `v0` to `v${N - 1}`, in order. */
+type Names<N extends number, T extends string[] = []> = T["length"] extends N
+  ? T
+  : Names<N, [...T, `v${T["length"]}`]>;
+/** The values of five bits, 0 to 31. */
+type Five = Domain<ReturnType<typeof bits<5>>>;
+declare const tuple32: Readonly<Names<32>>;
+declare const tuple64: Readonly<Names<64>>;
+declare const tuple128: Readonly<Names<128>>;
+declare const tuple256: Readonly<Names<256>>;
+declare const numeric32: { readonly [N in Five]: `v${N}` };
+declare const named32: { readonly [N in Five as `V${N}`]: N };
 
 describe("Enum types", () => {
   it("infer inline literals and keep the raw codec's output unchanged", () => {
-    enumOf(u8, allBytes);
-    enumOf(i8, allSignedBytes);
     const priority = enumOf(bits(2), ["low", "normal", "high", "reserved"]);
     const flag = enumOf(bits(1), [false, true]);
     const sparse = enumOf(
@@ -78,13 +87,76 @@ describe("Enum types", () => {
     enumOf(u64le, { A: 1n, B: 2n }, enumOf.reject);
   });
 
+  it("prove complete tables in every form only through five bits", () => {
+    const tuple = enumOf(bits(5), tuple32);
+    const keys = enumOf(bits(5), numeric32);
+    const members = enumOf(bits(1), Bit);
+    const object = enumOf(bits(5), named32);
+    expectTypeOf<Output<typeof tuple>>().toEqualTypeOf<
+      (typeof tuple32)[number]
+    >();
+    expectTypeOf<Output<typeof keys>>().toEqualTypeOf<`v${Five}`>();
+    expectTypeOf<Output<typeof members>>().toEqualTypeOf<Bit>();
+    expectTypeOf<Output<typeof object>>().toEqualTypeOf<Five>();
+    expectTypeOf<Domain<ReturnType<typeof bits<6>>>>().toEqualTypeOf<unknown>();
+    expectTypeOf<Domain<typeof u8>>().toEqualTypeOf<unknown>();
+    expectTypeOf<Domain<typeof i8>>().toEqualTypeOf<unknown>();
+    enumOf(bits(2), { A: 0, B: 1, C: 2, D: 3 });
+    enumOf(bits(2), { 0: "a", 1: "b", 2: "c", 3: "d" });
+    // Aliases do not invalidate complete coverage.
+    enumOf(bits(1), { No: 0, Yes: 1, AlsoYes: 1 });
+    const eight = ["a", "b", "c", "d", "e", "f", "g", "h"] as const;
+    enumOf(bits(3), eight);
+    enumOf(bits(4), [...eight, "i", "j", "k", "l", "m", "n", "o", "p"]);
+    expectTypeOf<Domain<ReturnType<typeof bits<3>>>>().toEqualTypeOf<
+      0 | 1 | 2 | 3 | 4 | 5 | 6 | 7
+    >();
+    expectTypeOf<Domain<ReturnType<typeof bits<4>>>>().toEqualTypeOf<
+      0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15
+    >();
+    // @ts-expect-error Static coverage stops at 32 values, even for a full tuple.
+    enumOf(bits(6), tuple64);
+    // @ts-expect-error Seven-bit coverage also needs an explicit policy.
+    enumOf(bits(7), tuple128);
+    // @ts-expect-error Eight-bit coverage also needs an explicit policy.
+    enumOf(bits(8), tuple256);
+    // @ts-expect-error Complete byte tables are not statically proven.
+    enumOf(u8, tuple256);
+    // @ts-expect-error Signed byte tables are not statically proven.
+    enumOf(i8, numeric);
+    enumOf(bits(6), tuple64, enumOf.reject);
+    enumOf(u8, tuple256, enumOf.keep);
+  });
+
   it("require policies for unknown coverage", () => {
+    declareWidthCases();
+    // @ts-expect-error A named object is missing raw 31.
+    enumOf(bits(5), {} as Omit<typeof named32, "V31">);
+    // @ts-expect-error A numeric-key object is missing raw 31.
+    enumOf(bits(5), {} as Omit<typeof numeric32, 31>);
+    // @ts-expect-error This numeric enum does not name raw 3.
+    enumOf(bits(2), Kind);
+    // @ts-expect-error These members might both name zero.
+    enumOf(bits(1), {} as { No: 0 | 1; Yes: 0 | 1 });
+    // @ts-expect-error The object might omit raw 1.
+    enumOf(bits(1), {} as { 0: "no" } | { 0: "no"; 1: "yes" });
+    // @ts-expect-error The named object might omit raw 1.
+    enumOf(bits(1), {} as { No: 0 } | { No: 0; Yes: 1 });
+    // @ts-expect-error Widened member values do not prove coverage.
+    enumOf(bits(1), {} as { No: number; Yes: number });
+    // @ts-expect-error A tuple union is not covered for every possible table.
+    enumOf(
+      bits(2),
+      [] as unknown as readonly ["a", "b"] | readonly ["a", "b", "c", "d"],
+    );
     // @ts-expect-error The width could be outside the bounded domains.
     enumOf(bits(mixedWidth), ["off", "on"]);
     // @ts-expect-error Raw 3 has no name.
     enumOf(bits(2), ["low", "normal", "high"]);
     // @ts-expect-error Wider bit domains are not enumerated.
     enumOf(bits(9), ["low", "normal"]);
+    // @ts-expect-error Wider numeric codecs always require a policy.
+    enumOf(u16le, numeric32);
     // @ts-expect-error Most bytes are unnamed.
     enumOf(u8, Kind);
     // @ts-expect-error Strings have no finite domain.
@@ -102,19 +174,7 @@ describe("Enum types", () => {
     enumOf(u8, [], enumOf.reject);
   });
 
-  it("check raw domains and fallback membership without widening", () => {
-    // @ts-expect-error Raw 5 cannot fit two bits.
-    enumOf(bits(2), { 5: "bad" }, enumOf.reject);
-    // @ts-expect-error Tuple index 2 cannot fit one bit.
-    enumOf(bits(1), ["a", "b", "c"], enumOf.reject);
-    // @ts-expect-error Named values must also fit the raw domain.
-    enumOf(bits(1), { A: 2 }, enumOf.keep);
-    // @ts-expect-error Numeric enum members must also fit the bounded domain.
-    enumOf(u8, OutsideByte, enumOf.reject);
-    // @ts-expect-error Bytes do not hold 256.
-    enumOf(u8, { 256: "bad" }, enumOf.keep);
-    // @ts-expect-error Signed bytes do not hold 128.
-    enumOf(i8, { 128: "bad" }, enumOf.keep);
+  it("check raw types and fallback membership without widening", () => {
     // @ts-expect-error String members need string codecs.
     enumOf(u8, Tag, enumOf.reject);
     // @ts-expect-error Heterogeneous enum members cannot share a raw type.
@@ -213,3 +273,13 @@ describe("Enum types", () => {
     match("kind").case(1, u8).case(Kind.Data, u16le);
   });
 });
+
+function declareWidthCases() {
+  const width = 1 as 1 | 2;
+  // @ts-expect-error Two names cannot cover the possible two-bit width.
+  enumOf(bits(width), ["off", "on"]);
+  // @ts-expect-error The named table does not cover the possible two-bit width.
+  enumOf(bits(width), { No: 0, Yes: 1 });
+  // @ts-expect-error The keys do not cover the possible two-bit width.
+  enumOf(bits(width), { 0: "off", 1: "on" });
+}
