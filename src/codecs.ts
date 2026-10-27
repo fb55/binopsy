@@ -514,26 +514,17 @@ const encodings = new Set<string>(["utf8", "latin1", "ascii", "utf16le"]);
  * Checks options when a string is defined: known keys, and units of the
  * encoding.
  *
- * @param raw The options given.
+ * @param o The options given.
  * @param keys The names of the options the string takes.
  * @returns The encoding (by default `"utf8"`), terminator and padding.
  */
 function options(
-  raw: object,
+  o: StringOptions,
   keys: readonly string[],
-): {
-  encoding: Encoding;
-  terminator: number | undefined;
-  padRight: number | undefined;
-} {
-  for (const key of Object.keys(raw)) {
+): StringOptions & { encoding: Encoding } {
+  for (const key of Object.keys(o)) {
     if (!keys.includes(key)) throw new TypeError(`unknown option \`${key}\``);
   }
-  const o = raw as {
-    encoding?: Encoding;
-    terminator?: number;
-    padRight?: number;
-  };
   const encoding = o.encoding ?? "utf8";
   if (!encodings.has(encoding)) {
     throw new TypeError(`unknown encoding \`${encoding}\``);
@@ -1192,11 +1183,6 @@ class Literal extends Wrapper {
       : `${v} !== ${g.k(this.value)}`;
   }
 
-  emitRead(g: Gen, wanted: boolean): string {
-    const at = g.let(g.at());
-    return this.readValue(g, this.inner.emitRead(g, true), at, wanted);
-  }
-
   protected readValue(g: Gen, v: string, at: string, wanted: boolean): string {
     g.check(this.differs(g, v), "invalid", this.mismatch(v), at);
     return wanted ? g.k(this.value) : "";
@@ -1247,11 +1233,6 @@ class Refine extends Wrapper {
     super(inner, true);
     this.test = test;
     this.message = message;
-  }
-
-  emitRead(g: Gen, wanted: boolean): string {
-    const at = g.let(g.at());
-    return this.readValue(g, this.inner.emitRead(g, true), at, wanted);
   }
 
   protected readValue(g: Gen, v: string, at: string, wanted: boolean): string {
@@ -1323,7 +1304,7 @@ class Mapped extends Wrapper {
     this.toRaw = toRaw;
   }
 
-  emitRead(g: Gen, wanted: boolean): string {
+  override emitRead(g: Gen, wanted: boolean): string {
     if (!wanted) return this.inner.emitRead(g, false);
     const at = g.let(g.at());
     return this.readValue(g, this.inner.emitRead(g, true), at, wanted);

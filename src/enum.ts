@@ -156,46 +156,43 @@ function numeric(key: string): boolean {
 function normalize(table: Table): [Map<Value, Value>, Map<Value, Value>] {
   const forward = new Map<Value, Value>();
   const inverse = new Map<Value, Value>();
-  const entries = Object.entries(table);
-  const add = (raw: Value, value: unknown): void => {
-    if (typeof value !== "string" && typeof value !== "boolean") {
-      throw new TypeError("enumOf: names must be strings or booleans");
+  const array = Array.isArray(table);
+  const entries: (readonly [string, Value])[] = array
+    ? Array.from({ length: table.length }, (_, i) => {
+        if (!(i in table)) {
+          throw new TypeError(`enumOf: array hole at ${i}; use an object`);
+        }
+        return [String(i), (table as readonly Name[])[i]] as const;
+      })
+    : Object.entries(table);
+  const named = !array && entries.some(([key]) => !numeric(key));
+  for (const [key, value] of entries) {
+    // Only verified reverse entries of numeric TypeScript enums are ignored.
+    if (named && numeric(key)) {
+      if ((table as Record<string, unknown>)[value as string] !== Number(key)) {
+        throw new TypeError(`enumOf: ${key} is not the value of a member`);
+      }
+      continue;
     }
-    if (inverse.has(value)) {
+    if (
+      named
+        ? !["number", "string", "bigint"].includes(typeof value)
+        : typeof value !== "string" && typeof value !== "boolean"
+    ) {
+      throw new TypeError(
+        named
+          ? "enumOf: members must be numbers, strings or bigints"
+          : "enumOf: names must be strings or booleans",
+      );
+    }
+    const raw = named ? value : Number(key);
+    if (!named && inverse.has(value)) {
       throw new TypeError(
         `enumOf: duplicate name ${display(value)} for raw values ${display(inverse.get(value))} and ${display(raw)}`,
       );
     }
     forward.set(raw, value);
     inverse.set(value, raw);
-  };
-  if (Array.isArray(table)) {
-    for (let i = 0; i < table.length; i++) {
-      if (!(i in table)) {
-        throw new TypeError(`enumOf: array hole at ${i}; use an object`);
-      }
-      add(i, table[i]);
-    }
-  } else if (entries.every(([key]) => numeric(key))) {
-    for (const [key, value] of entries) add(Number(key), value);
-  } else {
-    for (const [key, value] of entries) {
-      // Numeric enums map their values back to their names too.
-      if (numeric(key)) {
-        if (
-          (table as Record<string, unknown>)[value as string] !== Number(key)
-        ) {
-          throw new TypeError(`enumOf: ${key} is not the value of a member`);
-        }
-      } else if (["number", "string", "bigint"].includes(typeof value)) {
-        forward.set(value, value);
-        inverse.set(value, value);
-      } else {
-        throw new TypeError(
-          "enumOf: members must be numbers, strings or bigints",
-        );
-      }
-    }
   }
   if (forward.size === 0) throw new TypeError("enumOf: no values");
   return [forward, inverse];
@@ -221,38 +218,6 @@ function range(inner: AnyCodec): [string, number, number] | undefined {
     : [inner.name, -count / 2, count / 2 - 1];
 }
 
-/**
- * Checks that the codec holds the raw values, and finds one without a name
- * (of codecs of at most 8 bits; other codecs are not known to be covered).
- *
- * @param inner The codec of raw values.
- * @param values The decoded values by raw value.
- * @returns Why a policy is needed, or "" if every raw value has a name.
- */
-function uncovered(inner: AnyCodec, values: ReadonlyMap<Value, Value>): string {
-  const bounds = range(inner);
-  if (!bounds) return "the codec has values without names";
-  const [name, min, max] = bounds;
-  for (const raw of values.keys()) {
-    if (
-      !(
-        Number.isInteger(raw) &&
-        (raw as number) >= min &&
-        (raw as number) <= max
-      )
-    ) {
-      throw new RangeError(
-        `enumOf: raw value ${display(raw)} is outside ${name}, which holds ${min}..${max}`,
-      );
-    }
-  }
-  if (max - min > 255) return "the codec has values without names";
-  for (let raw = min; raw <= max; raw++) {
-    if (!values.has(raw)) return `${name} value ${raw} has no name`;
-  }
-  return "";
-}
-
 class Enum extends Wrapper {
   private readonly forward: readonly Value[] | ReadonlyMap<Value, Value>;
   private readonly inverse: ReadonlyMap<Value, Value>;
@@ -261,14 +226,44 @@ class Enum extends Wrapper {
 
   constructor(inner: AnyCodec, table: Table, policy?: Policy<Value>) {
     const [forward, inverse] = normalize(table);
-    const reason = uncovered(inner, forward);
-    if (policy === undefined) {
-      if (reason) {
-        throw new TypeError(
-          `enumOf: a policy is needed: ${reason} (enumOf.reject, enumOf.keep or a fallback value)`,
-        );
+    const bounds = range(inner);
+    if (bounds) {
+      const [name, min, max] = bounds;
+      for (const raw of forward.keys()) {
+        if (
+          !(
+            Number.isInteger(raw) &&
+            (raw as number) >= min &&
+            (raw as number) <= max
+          )
+        ) {
+          throw new RangeError(
+            `enumOf: raw value ${display(raw)} is outside ${name}, which holds ${min}..${max}`,
+          );
+        }
       }
-    } else if (policy !== reject && policy !== keep && !inverse.has(policy)) {
+    }
+    let reason = "the codec has values without names";
+    if (bounds && bounds[2] - bounds[1] <= 255) {
+      reason = "";
+      for (let raw = bounds[1]; raw <= bounds[2]; raw++) {
+        if (!forward.has(raw)) {
+          reason = `${bounds[0]} value ${raw} has no name`;
+          break;
+        }
+      }
+    }
+    if (policy === undefined && reason) {
+      throw new TypeError(
+        `enumOf: a policy is needed: ${reason} (enumOf.reject, enumOf.keep or a fallback value)`,
+      );
+    }
+    if (
+      policy !== undefined &&
+      policy !== reject &&
+      policy !== keep &&
+      !inverse.has(policy)
+    ) {
       throw new TypeError(
         `enumOf: fallback ${display(policy)} is not one of the values`,
       );
@@ -277,25 +272,12 @@ class Enum extends Wrapper {
     this.policy = policy ?? reject;
     this.inverse = inverse;
     this.rawType = typeof forward.keys().next().value;
-    const dense = [...forward.keys()].every(
-      (raw) =>
-        typeof raw === "number" &&
-        Number.isInteger(raw) &&
-        raw >= 0 &&
-        raw < forward.size,
+    const values = Array.from({ length: forward.size }, (_, i) =>
+      forward.get(i),
     );
-    this.forward = dense
-      ? (Object.setPrototypeOf(
-          Array.from({ length: forward.size }, (_, i) => forward.get(i)!),
-          null,
-        ) as Value[])
+    this.forward = values.every((value) => value !== undefined)
+      ? (Object.setPrototypeOf(values, null) as Value[])
       : forward;
-  }
-
-  emitRead(g: Gen, wanted: boolean): string {
-    if (!wanted && !this.checks) return this.inner.emitRead(g, false);
-    const at = g.let(g.at());
-    return this.readValue(g, this.inner.emitRead(g, true), at, wanted);
   }
 
   protected readValue(

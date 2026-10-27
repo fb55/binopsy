@@ -41,6 +41,12 @@ export abstract class Wrapper extends Codec<
     }
   }
 
+  emitRead(g: Gen, wanted: boolean): string {
+    if (!wanted && !this.checks) return this.inner.emitRead(g, false);
+    const at = g.let(g.at());
+    return this.readValue(g, this.inner.emitRead(g, true), at, wanted);
+  }
+
   protected abstract readValue(
     g: Gen,
     raw: string,

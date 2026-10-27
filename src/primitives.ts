@@ -200,55 +200,10 @@ export const f64le = primitive<number>("f64le", 8, "Float64", true);
 export const f64be = primitive<number>("f64be", 8, "Float64");
 
 /** The number codecs by name: parsers have a method adding a field of each (starting at a byte). */
-export interface Numbers {
-  /** Adds a field of an unsigned 8-bit integer. */
-  u8: typeof u8;
-  /** Adds a field of a signed 8-bit integer. */
-  i8: typeof i8;
-  /** Adds a field of an unsigned 16-bit integer, little endian. */
-  u16le: typeof u16le;
-  /** Adds a field of an unsigned 16-bit integer, big endian. */
-  u16be: typeof u16be;
-  /** Adds a field of a signed 16-bit integer, little endian. */
-  i16le: typeof i16le;
-  /** Adds a field of a signed 16-bit integer, big endian. */
-  i16be: typeof i16be;
-  /** Adds a field of an unsigned 24-bit integer, little endian. */
-  u24le: typeof u24le;
-  /** Adds a field of an unsigned 24-bit integer, big endian. */
-  u24be: typeof u24be;
-  /** Adds a field of a signed 24-bit integer, little endian. */
-  i24le: typeof i24le;
-  /** Adds a field of a signed 24-bit integer, big endian. */
-  i24be: typeof i24be;
-  /** Adds a field of an unsigned 32-bit integer, little endian. */
-  u32le: typeof u32le;
-  /** Adds a field of an unsigned 32-bit integer, big endian. */
-  u32be: typeof u32be;
-  /** Adds a field of a signed 32-bit integer, little endian. */
-  i32le: typeof i32le;
-  /** Adds a field of a signed 32-bit integer, big endian. */
-  i32be: typeof i32be;
-  /** Adds a field of an unsigned 64-bit integer (a `bigint`), little endian. */
-  u64le: typeof u64le;
-  /** Adds a field of an unsigned 64-bit integer (a `bigint`), big endian. */
-  u64be: typeof u64be;
-  /** Adds a field of a signed 64-bit integer (a `bigint`), little endian. */
-  i64le: typeof i64le;
-  /** Adds a field of a signed 64-bit integer (a `bigint`), big endian. */
-  i64be: typeof i64be;
-  /** Adds a field of a 32-bit float, little endian (numbers are rounded to it). */
-  f32le: typeof f32le;
-  /** Adds a field of a 32-bit float, big endian (numbers are rounded to it). */
-  f32be: typeof f32be;
-  /** Adds a field of a 64-bit float (a JavaScript number), little endian. */
-  f64le: typeof f64le;
-  /** Adds a field of a 64-bit float (a JavaScript number), big endian. */
-  f64be: typeof f64be;
-}
+export type Numbers = typeof primitives;
 
 /** The number codecs by name. */
-export const primitives: Numbers = {
+export const primitives = {
   u8,
   i8,
   u16le,
