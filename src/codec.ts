@@ -5,6 +5,7 @@
  * their values (see compile.ts), so that each parser becomes a few
  * specialized functions.
  */
+import type { Merged } from "./bin.ts";
 import {
   compile,
   type Decoder as Compiled,
@@ -46,6 +47,8 @@ export abstract class Codec<O = unknown, I = O, Ctx = unknown> {
   readonly checks: boolean;
   /** The earlier fields the codec reads. @internal */
   readonly reads: Reads;
+  /** A match whose cases are parsers, if this codec can merge their fields. @internal */
+  declare readonly merged?: (AnyCodec & Merged) | undefined;
   #decoder: Compiled | undefined;
   #bufferDecoder: Compiled | undefined;
   #encoder: Encoder | undefined;

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+Unused match support is now removed by bundlers, including the code for merging match cases into parsers.
+
 binopsy is rewritten in TypeScript, around codecs: values that decode and encode, compiled to specialized JavaScript functions.
 Parsers are defined as before, field by field, but each method returns a new parser, and every parser is a codec.
 Changes are relative to the last published version, 0.0.0, whose API followed binary-parser's; all of it changed.

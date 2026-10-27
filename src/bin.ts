@@ -15,13 +15,12 @@ import {
   type types,
 } from "./codec.ts";
 import { ALL_FIELDS, type Gen, type Reads, type Selection } from "./compile.ts";
-import {
-  Match,
-  type Value,
-  type matchTypes,
-  type IsUnion,
-  type CaseCodec,
-  type CaseValues as CaseValue,
+import type {
+  Value,
+  matchTypes,
+  IsUnion,
+  CaseCodec,
+  CaseValues as CaseValue,
 } from "./match.ts";
 import { primitives, type Numbers } from "./primitives.ts";
 
@@ -385,10 +384,8 @@ type Entry =
       readonly width: number;
       readonly order: Order;
     }
-  /** A match of parsers, whose fields are added. */
-  | { readonly kind: "match"; readonly match: Match }
-  /** A parser computing fields or decoding some, whose fields are added. */
-  | { readonly kind: "group"; readonly struct: Parser }
+  /** A codec whose fields are added without flattening its entries. */
+  | { readonly kind: "group"; readonly codec: AnyCodec & Merged }
   /** Bytes skipped: `size` of them, or (`align`) up to a multiple of `size` from the start of the parser. */
   | { readonly kind: "pad"; readonly size: number; readonly align: boolean };
 
@@ -401,14 +398,8 @@ type Entry =
  */
 function names(entry: Entry, definite = false): string[] {
   switch (entry.kind) {
-    case "match": {
-      const all = cases(entry.match).map((s) => s.names(definite));
-      return [...new Set(all.flat())].filter(
-        (name) => !definite || all.every((fields) => fields.includes(name)),
-      );
-    }
     case "group": {
-      return entry.struct.names(definite);
+      return entry.codec.names(definite);
     }
     case "pad": {
       return [];
@@ -453,20 +444,8 @@ function addNames(entry: Entry, own: Set<string>, definite: Set<string>): void {
   for (const name of names(entry, true)) definite.add(name);
 }
 
-/**
- * The parsers of the cases of a match.
- *
- * @param match A match of parsers.
- * @returns The parsers of the cases in order, then the default (if any).
- */
-function cases(match: Match): Parser[] {
-  const all = match.cases.map(([, codec]) => codec);
-  if (match.default) all.push(match.default);
-  return all as unknown as Parser[];
-}
-
-/** A parser at run time: a list of entries. */
-class Parser extends Codec<Obj> {
+/** A parser at run time: a list of entries. @internal */
+export class Parser extends Codec<Obj> {
   readonly entries: readonly Entry[];
   readonly order: Order;
   /** The names of its fields in order (those of the cases of a match once). */
@@ -504,12 +483,7 @@ class Parser extends Codec<Obj> {
         size += entry.align ? Number.NaN : entry.size;
         bits = 0;
       } else {
-        const codec =
-          entry.kind === "field"
-            ? entry.codec
-            : entry.kind === "match"
-              ? entry.match
-              : entry.struct;
+        const { codec } = entry;
         size += codec.size;
         checks ||= codec.checks;
         bits = 0;
@@ -581,15 +555,12 @@ class Parser extends Codec<Obj> {
       // Parsers aligning fields keep their start.
       return this.add(
         other.computes || other.selection || other.aligns
-          ? [{ kind: "group", struct: other }]
+          ? [{ kind: "group", codec: other }]
           : other.entries,
       );
     }
-    if (
-      other instanceof Match &&
-      cases(other).every((c) => c instanceof Parser)
-    ) {
-      return this.add([{ kind: "match", match: other }]);
+    if (other instanceof Codec && other.merged) {
+      return this.add([{ kind: "group", codec: other.merged }]);
     }
     throw new TypeError(
       "merge needs a parser, or a match of parsers; use field(name, codec) for a value",
@@ -749,14 +720,8 @@ class Parser extends Codec<Obj> {
         if (from) g.trace(from, v);
         if (v) g.fields.set(name, v);
         if (output.has(name)) parts.push({ name, v });
-      } else if (entry.kind === "group") {
-        parts.push(...entry.struct.decodeGroup(g, output, after[i]));
       } else {
-        parts.push(
-          emitCases(g, entry.match, (struct) =>
-            struct.decodeFields(g, output, after[i]),
-          ),
-        );
+        parts.push(...entry.codec.decodeGroup(g, output, after[i]));
       }
     }
     g.field = undefined;
@@ -772,7 +737,7 @@ class Parser extends Codec<Obj> {
    * @param later The names of the fields that entries after the group read.
    * @returns The parts of the object, in order.
    */
-  private decodeGroup(
+  decodeGroup(
     g: Gen,
     wanted: ReadonlySet<string>,
     later: ReadonlySet<string>,
@@ -903,13 +868,8 @@ class Parser extends Codec<Obj> {
         }
         writeValue(g, codec, v);
         g.fields.set(name, v);
-      } else if (entry.kind === "group") {
-        entry.struct.encodeFields(g, object, computed);
       } else {
-        emitCases(g, entry.match, (struct) => {
-          struct.encodeFields(g, object, computed);
-          return [];
-        });
+        entry.codec.encodeFields(g, object, computed);
       }
     }
     g.field = undefined;
@@ -986,81 +946,6 @@ class Parser extends Codec<Obj> {
 }
 
 /**
- * Emits a match's field scopes, sharing the locals its cases define.
- *
- * @param g The generator of the function.
- * @param match A match of parsers.
- * @param emit Emits the code of a case's parser; returns its parts.
- * @returns The piece of the cases (whose parts are only kept when decoding).
- */
-function emitCases(
-  g: Gen,
-  match: Match,
-  emit: (struct: Parser) => Piece[],
-): Piece {
-  g.field = undefined;
-  const structs = cases(match);
-  const shared = new Map<string, string>();
-  for (const struct of structs) {
-    for (const name of struct.names()) {
-      if (!shared.has(name)) shared.set(name, g.hoist());
-    }
-  }
-  const branch = g.hoist();
-  const outer = g.fields;
-  const parts: Piece[][] = [];
-  // The cases setting each field, and when it is present in them.
-  const sets = new Map<string, [i: number, when: string | undefined][]>();
-  match.emitSwitch(g, (_codec, i) => {
-    g.fields = new Map(outer);
-    const own = emit(structs[i]);
-    for (const [name, v] of g.fields) {
-      if (shared.has(name) && outer.get(name) !== v) {
-        g.line(`${shared.get(name)} = ${v};`);
-        sets.set(name, [...(sets.get(name) ?? []), [i, g.present.get(v)]]);
-      }
-    }
-    g.line(`${branch} = ${i};`);
-    if (!g.encoding) {
-      parts[i] = own.map((part) =>
-        "branch" in part
-          ? part
-          : { name: part.name, v: shared.get(part.name)! },
-      );
-    }
-  });
-  g.fields = new Map(outer);
-  for (const [name, v] of shared) {
-    g.fields.set(name, v);
-    // Fields set by every case (whatever their nested matches) are present.
-    const setters = sets.get(name) ?? [];
-    if (
-      setters.length === structs.length &&
-      setters.every(([, when]) => when === undefined)
-    ) {
-      continue;
-    }
-    let when = setters
-      .map(([i, inner]) =>
-        inner === undefined
-          ? `${branch} === ${i}`
-          : `(${branch} === ${i} && (${inner}))`,
-      )
-      .join(" || ");
-    // In other cases, a field around the parser of the same name is seen.
-    const around = outer.get(name);
-    if (around !== undefined) {
-      g.line(`if (!(${when || "false"})) ${v} = ${around};`);
-      const inherited = g.present.get(around);
-      if (inherited === undefined) continue;
-      when = when ? `${when} || (${inherited})` : inherited;
-    }
-    g.present.set(v, when || "false");
-  }
-  return { branch, cases: parts };
-}
-
-/**
  * Emits code skipping bytes (writing zeros when encoding).
  *
  * @param g The generator of the function.
@@ -1101,88 +986,59 @@ function valueOffset(g: Gen): string {
  */
 function readsOf(entry: Entry): Reads {
   if (entry.kind === "bits" || entry.kind === "pad") return [];
-  return (
-    entry.kind === "field"
-      ? entry.codec
-      : entry.kind === "match"
-        ? entry.match
-        : entry.struct
-  ).reads;
+  return entry.codec.reads;
 }
 
-/** A piece of a decoded object: a field, or the fields of the case of a match (`branch` holds its index). */
-type Piece = Field | Cases;
-interface Field {
+/** A codec adding fields to a parser. */
+export interface Merged {
+  names(definite?: boolean): string[];
+  decodeGroup(
+    g: Gen,
+    wanted: ReadonlySet<string>,
+    later: ReadonlySet<string>,
+  ): Piece[];
+  encodeFields(
+    g: Gen,
+    object: string,
+    supplied: ReadonlyMap<string, string>,
+  ): void;
+}
+
+/** A decoded field, or a codec's deferred object construction. */
+export type Piece =
+  | Field
+  | {
+      readonly count: number;
+      object(g: Gen, parts: readonly Piece[], into?: string): string;
+    };
+export interface Field {
   readonly name: string;
   readonly v: string;
 }
-interface Cases {
-  readonly branch: string;
-  readonly cases: readonly (readonly Piece[])[];
-}
 
 /**
- * Builds an object: complete literals for few combinations (faster for small
- * objects), or assignments to avoid copying objects and linear case lookup.
+ * Builds an object from decoded fields, delegating variants to their codec.
  *
  * @param g The generator of the function.
- * @param parts The fields, and the cases of matches, in order.
+ * @param parts The fields in order.
  * @param into An existing object to add the fields to.
  * @returns An object expression, or the variable holding the object.
  */
-function objectOf(g: Gen, parts: readonly Piece[], into?: string): string {
-  const combinations = parts.reduce(
-    (n, part) => ("branch" in part ? n * part.cases.length : n),
-    1,
-  );
-  if (into !== undefined || combinations > 16) {
-    const object = into ?? g.let("{}");
-    for (const part of parts) {
-      if ("branch" in part) {
-        g.line(`switch (${part.branch}) {`);
-        for (const [j, fields] of part.cases.entries()) {
-          g.line(`case ${j}:`);
-          objectOf(g, fields, object);
-          g.line("break;");
-        }
-        g.line("}");
-      } else {
-        g.line(`${object}[${JSON.stringify(part.name)}] = ${part.v};`);
-      }
+export function objectOf(
+  g: Gen,
+  parts: readonly Piece[],
+  into?: string,
+): string {
+  const deferred = parts.find((part) => !("name" in part));
+  if (deferred && "object" in deferred) return deferred.object(g, parts, into);
+  const fields = parts as Field[];
+  if (into !== undefined) {
+    for (const { name, v } of fields) {
+      g.line(`${into}[${JSON.stringify(name)}] = ${v};`);
     }
-    return object;
+    return into;
   }
-  const i = parts.findIndex((part) => "branch" in part);
-  if (i === -1) {
-    const fields = (parts as Field[]).map(
-      ({ name, v }) => `${JSON.stringify(name)}: ${v}`,
-    );
-    return `{ ${fields.join(", ")} }`;
-  }
-  const match = parts[i] as Cases;
-  return choice(match, (j) =>
-    objectOf(g, [
-      ...parts.slice(0, i),
-      ...match.cases[j],
-      ...parts.slice(i + 1),
-    ]),
-  );
-}
-
-/**
- * An expression that is `of(j)` if the match is in its case `j`.
- *
- * @param match The cases, and the variable of the index of the one decoded.
- * @param of The expression for a case, given its index.
- * @returns A chain of conditional expressions (or `of(0)`, for one case).
- */
-function choice(match: Cases, of: (j: number) => string): string {
-  const last = match.cases.length - 1;
-  return match.cases
-    .map((_, j) =>
-      j < last ? `${match.branch} === ${j} ? ${of(j)} : ` : of(j),
-    )
-    .join("");
+  return `{ ${fields.map(({ name, v }) => `${JSON.stringify(name)}: ${v}`).join(", ")} }`;
 }
 
 /**
