@@ -17,6 +17,7 @@ import { Wrapper } from "./wrapper.ts";
 type Name = string | boolean;
 type Table = readonly Name[] | Readonly<Record<string | number, Value>>;
 type Keys<T> = Extract<keyof T, string | number>;
+/** Keys that spell numbers (`"1"`, not `"01"`), as numbers. */
 type Numeric<K> = K extends number
   ? K
   : K extends `${infer N extends number}`
@@ -24,12 +25,15 @@ type Numeric<K> = K extends number
       ? N
       : never
     : never;
+/** The member names of an enum or const object (`never` for a table of names by number). */
 type Named<T> = {
   [K in Keys<T>]: [Numeric<K>] extends [never] ? K : never;
 }[Keys<T>];
+/** The decoded values: names, or members. */
 type Known<T> = T extends readonly Name[]
   ? T[number]
   : T[[Named<T>] extends [never] ? Keys<T> : Named<T>];
+/** The raw values: indexes, numeric keys, or members. */
 type Wire<T> = T extends readonly Name[]
   ? number
   : [Named<T>] extends [never]
@@ -44,6 +48,7 @@ type RawKind<T> = [T] extends [number]
     : [T] extends [bigint]
       ? bigint
       : never;
+/** `unknown` if table `T` fits codec `C` (raw values of its type, of a codec that encodes what it decodes or only decodes), else `never`. */
 type Checked<C, T> = [Known<T>] extends [never]
   ? never
   : [Wire<T>] extends [never]
@@ -59,11 +64,13 @@ type Checked<C, T> = [Known<T>] extends [never]
 type Members<T> = {
   [K in Named<T>]: IsUnion<T[K]> extends true ? never : ScalarValue<T[K]>;
 }[Named<T>];
+/** Whether raw values `V` are all the values of `C` (only provable for its `Domain`). */
 type Covers<C, V, S = ScalarValue<V>> = number extends S
   ? false
   : Exclude<Domain<C>, S> extends never
     ? true
     : false;
+/** Whether table `T` provably names every raw value of `C` (so the policy may be omitted). */
 type Covered<C, T> = T extends readonly Name[]
   ? number extends T["length"]
     ? false
@@ -83,14 +90,15 @@ type Decoded<C, T, P> = P extends Keep
   : Known<T>;
 
 /**
- * Names or members for values of `codec`. Arrays name their indexes, numeric
- * records name their keys, and named records (including enums) keep their values.
- * Incomplete or unprovable coverage needs an explicit unknown-value policy.
+ * Names for the raw values of `codec`, or members of a TypeScript enum or
+ * const object (see `enumOf`).
  *
- * @param codec The codec of the raw value.
- * @param values The names or members, snapshotted at definition time.
- * @param policy Reject, keep, or replace unknown raw values.
- * @returns A codec of the names or members, preserving its inner context.
+ * @param codec The codec of the raw values, e.g. `u8` or `bits(2)`.
+ * @param values The names by raw value (an array or an object), or an enum
+ *   or const object. It is read when the codec is defined.
+ * @param policy For unknown raw values: `enumOf.reject`, `enumOf.keep`, or a
+ *   name or member of `values` to decode them as.
+ * @returns A codec of the names or members.
  */
 function defineEnum<
   C extends AnyCodec,
@@ -109,11 +117,54 @@ function defineEnum<
   return new Enum(codec, values, policy[0]) as never;
 }
 
-/** Names or members for raw values; unknown values need an explicit policy unless coverage is complete. */
+/**
+ * Names for the raw values of `codec`, or members of a TypeScript enum or
+ * const object. The table is one of:
+ *
+ * - an array of string or boolean names, by raw value: `["low", "high"]`;
+ * - an object of names by raw value: `{ 1: "data", 2: "ack", 0x3f: "error" }`;
+ * - an enum or const object, whose members are both the raw and the decoded
+ *   values (numbers, strings or bigints).
+ *
+ * For unknown raw values, `policy` is `enumOf.reject` (decoding fails, also
+ * under `pick`), `enumOf.keep` (they decode and encode as they are), or a
+ * name or member, which they decode as (lossy: it encodes to its own raw
+ * value). The policy may be omitted only if the table names every raw value;
+ * TypeScript proves this for `bits(1)` to `bits(5)`. Encoding a value not in
+ * the table throws an `EncodeError`. An `enumOf` of a bit field is a bit
+ * field. See the README section on enums.
+ *
+ * @param codec The codec of the raw values, e.g. `u8` or `bits(2)`.
+ * @param values The table. It is read when the codec is defined: later
+ *   changes to it have no effect.
+ * @param policy For unknown raw values: `enumOf.reject`, `enumOf.keep`, or a
+ *   name or member of the table to decode them as.
+ * @returns A codec of the names or members.
+ * @throws {TypeError} If the table is invalid (e.g. empty, or with
+ *   duplicate names), the fallback is not in it, or a policy is needed (when
+ *   defined).
+ * @throws {RangeError} If a raw value does not fit an integer codec (when
+ *   defined).
+ * @example
+ * enumOf(bits(2), ["low", "normal", "high", "reserved"]); // Every value named
+ * enumOf(u8, { 1: "data", 2: "ack" }, enumOf.reject); // "data" | "ack"
+ * enumOf(u8, { 1: "data", 2: "ack" }, enumOf.keep); // "data" | "ack" | number
+ * enum Kind {
+ *   Unknown = 0,
+ *   Data = 1,
+ * }
+ * enumOf(u8, Kind, Kind.Unknown); // Other bytes decode as Kind.Unknown
+ */
 export const enumOf = /* @__PURE__ */ Object.assign(defineEnum, {
-  /** Fail decoding unknown raw values. */
+  /**
+   * The policy of `enumOf` that rejects unknown raw values: decoding fails
+   * with a `DecodeError` of code `"invalid"`.
+   */
   reject,
-  /** Keep unknown raw values; encoding still runs the inner codec's checks. */
+  /**
+   * The policy of `enumOf` that keeps unknown raw values: they decode as
+   * they are, and encode as they are (with the inner codec's checks).
+   */
   keep,
 } as const);
 
@@ -190,10 +241,11 @@ function normalize(table: Table): [Map<Value, Value>, Map<Value, Value>] {
 }
 
 /**
- * The values of an integer codec, where its type says them.
+ * The values an integer codec holds, for bounds and coverage checks.
  *
  * @param inner The codec of raw values.
- * @returns Its name and the least and greatest values, or nothing.
+ * @returns Its name and least and greatest values (`undefined` for codecs
+ *   other than `bits(n)` and `u8` to `i32be`).
  */
 function range(inner: AnyCodec): [string, number, number] | undefined {
   if (inner instanceof Bits) {
@@ -235,6 +287,7 @@ class Enum extends Wrapper {
       }
     }
     let reason = "the codec has values without names";
+    // Coverage is checked for domains of up to 8 bits.
     if (bounds && bounds[2] - bounds[1] <= 255) {
       reason = "";
       for (let raw = bounds[1]; raw <= bounds[2]; raw++) {
@@ -263,6 +316,8 @@ class Enum extends Wrapper {
     this.policy = policy ?? reject;
     this.inverse = inverse;
     this.rawType = typeof forward.keys().next().value;
+    // Raw values 0 to n - 1 are looked up in an array (without a prototype,
+    // so no raw value finds an inherited property), others in the map.
     const values = Array.from({ length: forward.size }, (_, i) =>
       forward.get(i),
     );

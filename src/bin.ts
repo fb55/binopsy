@@ -184,6 +184,7 @@ type Apply<
     : never
   : never;
 
+/** Methods adding a number field: `.u16le("length")` is `.field("length", u16le)`. */
 type NumberFields<T, I, Ctx> = {
   [N in keyof Numbers]: <const K extends string>(
     name: K,
@@ -228,9 +229,10 @@ type BatchComputed<I, K> = I extends unknown
 export declare const structured: unique symbol;
 
 /**
- * A parser that adds no more fields (as it computes some, or decodes only
- * some): `T` is the union of the objects it decodes, `I` that of those it
- * encodes, and `Ctx` holds fields it reads from the parser it is added to.
+ * A parser that takes no more fields, as it computes some or decodes only
+ * some (`computed` and `pick` return one): `T` is the union of the objects it
+ * decodes, `I` that of those it encodes, and `Ctx` holds fields it reads from
+ * the parser it is added to.
  */
 export interface Struct<T, I = T, Ctx = unknown> extends Codec<T, I, Ctx> {
   // Normalize only when a member is used. A normalized base type would
@@ -244,8 +246,26 @@ export interface Struct<T, I = T, Ctx = unknown> extends Codec<T, I, Ctx> {
   /** Types only: marks parsers. */
   readonly [structured]: true;
   /**
-   * A decoder of only the named fields. It still reads (and checks) the
-   * whole value, and decodes the fields that later ones depend on.
+   * A decoder of only the named fields: it steps over the others without
+   * decoding them (no strings, objects or `map` conversions), but still
+   * reads and checks the whole value (literals, refinements, …).
+   *
+   * Fields that later lengths or tags name are decoded too (but not
+   * returned); a function giving a length or condition may read any earlier
+   * field, so all the fields before it are. Without names, it steps over
+   * whole values, e.g. to count them. The result only decodes (also in
+   * streams and `Reader`s), and takes no more fields.
+   *
+   * @param names The fields to decode.
+   * @returns A parser decoding objects of the named fields.
+   * @throws {Error} If the parser has no field of a name (when defined).
+   * @example
+   * const Song = bin()
+   *   .u32le("id")
+   *   .field("title", string(u8))
+   *   .field("cover", bytes(u32le))
+   *   .f64le("duration");
+   * const Summary = Song.pick("id", "duration"); // { id: number; duration: number }
    */
   pick<const Names extends readonly Keys<T>[]>(
     ...names: Names
@@ -261,10 +281,30 @@ export interface Struct<T, I = T, Ctx = unknown> extends Codec<T, I, Ctx> {
 export interface Bin<T, I = T, Ctx = unknown>
   extends Struct<T, I, Ctx>, NumberFields<T, I, Ctx> {
   /**
-   * Adds a field (bit fields share bytes). Its codec may read the fields before
-   * it (`bytes("count")`, `bytes((o) => o.count * 2)`); functions get their
-   * decoded values, or, when encoding, the values being encoded. A match on
-   * an earlier field narrows the objects to a variant for each case.
+   * Adds a field `name`, decoded and encoded with `codec`.
+   *
+   * The codec may read the fields before it: by name (`bytes("count")`,
+   * `when("flag", …)`, `match("type")`), or with a function of them
+   * (`bytes((o) => o.count * 2)`). Functions get the decoded fields, or, when
+   * encoding, the values being encoded (with omitted literals and computed
+   * fields filled in). A match on an earlier field makes the objects a union,
+   * with a variant for each case.
+   *
+   * Consecutive bit fields share bytes; other fields start at the next byte.
+   *
+   * @param name The name of the field, unique in the parser.
+   * @param codec The codec of its value.
+   * @returns A new parser, with the field added.
+   * @throws {Error} If the parser has a field `name` (when defined), or, from
+   *   JavaScript, if `codec` reads a field that is not before it (when first
+   *   used).
+   * @example
+   * bin()
+   *   .u8("count")
+   *   .field("ratings", array(u16le, "count"))
+   *   .field("version", bits(4))
+   *   .field("flags", bits(4))
+   *   .field("data", bytes((o) => o.count * 2));
    */
   field<const K extends string, O, In, X = never, D extends boolean = false>(
     name: K,
@@ -285,8 +325,33 @@ export interface Bin<T, I = T, Ctx = unknown>
       >;
 
   /**
-   * Adds the fields of another parser (or of one of several: a union), or
-   * of the case of a match of parsers (whose variants it adds).
+   * Adds the fields of another parser, as if they were written here.
+   *
+   * `other` may also be one of several parsers (`cond ? A : B`, adding a
+   * union), or a match whose cases are parsers: the fields of the case are
+   * added, and the objects become a union with a variant for each case. The
+   * merged parser may read fields of this one, which it declares:
+   * `bin<{ length: number }>()`. A parser computing fields still computes
+   * them from its own fields.
+   *
+   * The bit fields of a merged parser continue a run of this one's (in the
+   * same bit order); those of a match, or of a parser that computes, picks or
+   * aligns fields, start at a byte.
+   *
+   * @param other A parser, or a match of parsers.
+   * @returns A new parser, with the fields added.
+   * @throws {Error} If a field name is taken (the cases of one match may
+   *   share names), or adjoining bit fields have different bit orders (when
+   *   defined).
+   * @example
+   * const Message = bin()
+   *   .u8("type")
+   *   .merge(
+   *     match("type")
+   *       .case(1, bin().field("name", string(u8)))
+   *       .case(2, bin().u32be("room").field("text", string(u16be))),
+   *   );
+   * // { type: 1; name: string } | { type: 2; room: number; text: string }
    */
   merge<B extends AnyCase, X = never>(
     other: Checked<
@@ -309,26 +374,88 @@ export interface Bin<T, I = T, Ctx = unknown>
         Ctx
       >;
 
-  /** Skips `size` bytes (zeros when encoding). */
+  /**
+   * Skips `size` bytes: decoding steps over them, and encoding writes zeros.
+   *
+   * @param size The number of bytes.
+   * @returns A new parser.
+   * @throws {RangeError} If `size` is not a non-negative safe integer.
+   */
   skip(size: number): Bin<T, I, Ctx>;
 
-  /** Skips to the next multiple of `size` bytes from the start of the parser (zeros when encoding). */
+  /**
+   * Skips to the next multiple of `size` bytes from the start of the parser
+   * (a merged parser counts from its own start); encoding writes zeros.
+   *
+   * @param size The alignment in bytes.
+   * @returns A new parser.
+   * @throws {RangeError} If `size` is not a positive safe integer.
+   * @example
+   * // A RIFF chunk takes an even number of bytes
+   * bin().field("id", string(4)).u32le("size").field("data", bytes("size")).align(2);
+   */
   align(size: number): Bin<T, I, Ctx>;
 
-  /** Applies a function adding fields (a group of fields used in several parsers). */
+  /**
+   * Calls `f` with this parser: for a group of fields used in several
+   * parsers.
+   *
+   * @param f A function adding fields to a parser. Give lengths in it as
+   *   functions: names cannot be checked against a type parameter.
+   * @returns What `f` returns.
+   * @example
+   * const withValues = <T extends { count: number }, I extends { count: number }>(
+   *   b: Bin<T, I>,
+   * ) => b.field("values", bytes((o) => o.count * 2));
+   * const Record = bin().u8("count").pipe(withValues);
+   */
   pipe<R>(f: (bin: this) => R): R;
 
   /**
-   * Computes field `name` from the rest of the value when encoding, so it
-   * may be omitted (a value given must be the computed one). It ends the
-   * parser: compute several fields with an object of functions.
+   * Computes field `name` when encoding, so the input may omit it: a value
+   * given for it must be the computed one (as by `Object.is`). Decoding is
+   * unchanged.
+   *
+   * `compute` gets the value without the field (and without omitted
+   * literals), and must not return `undefined`. The parser takes no more
+   * fields: compute several with `computed({ … })`.
+   *
+   * @param name The field to compute.
+   * @param compute Computes the field from the value being encoded.
+   * @returns A parser that computes the field.
+   * @throws {Error} If the parser has no field `name` (when defined).
+   * @example
+   * const Chunk = bin()
+   *   .u32be("length")
+   *   .field("data", bytes("length"))
+   *   .computed("length", (chunk) => chunk.data.length);
+   * Chunk.encode({ data: Uint8Array.of(1, 2) }); // Uint8Array [0, 0, 0, 2, 1, 2]
    */
   computed<const K extends keyof I & string, const V extends ValueOf<I, K>>(
     name: K,
     compute: (value: Without<I, K>) => V,
   ): Struct<Pretty<T>, Computed<I, K, V>, Ctx>;
 
-  /** Computes several fields; every function gets the value without any of them. */
+  /**
+   * Computes several fields when encoding, so the input may omit them. Each
+   * function gets the value without any of the computed fields, so they do
+   * not see each other's results. The parser takes no more fields.
+   *
+   * @param fields The function computing each field, by name.
+   * @returns A parser that computes the fields.
+   * @throws {Error} If the parser has no field of a name (when defined).
+   * @example
+   * const Packet = bin()
+   *   .u8("count")
+   *   .u16le("size")
+   *   .field("items", array(u16le, "count"))
+   *   .field("data", bytes("size"))
+   *   .computed({
+   *     count: (packet) => packet.items.length,
+   *     size: (packet) => packet.data.length,
+   *   });
+   * Packet.encode({ items: [1], data: Uint8Array.of(2) }); // Uint8Array [1, 1, 0, 1, 0, 2]
+   */
   computed<const K extends keyof I & string>(fields: {
     [P in K]: (value: Without<I, K>) => ValueOf<I, P>;
   }): Struct<Pretty<T>, BatchComputed<I, K>, Ctx>;
@@ -341,17 +468,49 @@ export interface Bin<T, I = T, Ctx = unknown>
  */
 export type AnyBin = Struct<unknown, never, never>;
 
-/** Options of parsers. */
+/** Options of `bin`. */
 export interface BinOptions {
-  /** The order bit fields take the bits of a byte in: most (default) or least significant first. */
+  /**
+   * The order bit fields take the bits of a byte in: most significant first
+   * (`"msb"`, the default, as in network protocols), or least significant
+   * first (`"lsb"`).
+   */
   bitOrder?: "msb" | "lsb" | undefined;
 }
 
-/** An empty parser. */
+/**
+ * An empty parser: a codec of objects, defined field by field. Each method
+ * adds a field, and returns a new parser typed from the fields before it.
+ *
+ * Fields are decoded and encoded in order. Lengths, counts, tags and
+ * conditions may name earlier fields, which TypeScript checks.
+ *
+ * @param options `bitOrder`: whether bit fields take the most (`"msb"`, the
+ *   default) or the least (`"lsb"`) significant bits of a byte first.
+ * @returns A parser without fields.
+ * @throws {TypeError} If an option is unknown or invalid.
+ * @example
+ * const Player = bin()
+ *   .u32le("id")
+ *   .field("name", string(u8))
+ *   .u8("count")
+ *   .field("ratings", array(u16le, "count"));
+ * const player = Player.decode(input);
+ * // { id: number; name: string; count: number; ratings: number[] }
+ * Player.encode(player); // The bytes again
+ */
 export function bin(options?: BinOptions): Bin<{}, {}>;
 /**
- * An empty parser reading fields `Ctx` of the parser it is merged into (or
- * is a match case of): `bin<{ length: number }>()`.
+ * An empty parser that reads fields `Ctx` of the parser it is merged into
+ * (or is a match case of).
+ *
+ * @param options `bitOrder`: whether bit fields take the most (`"msb"`, the
+ *   default) or the least (`"lsb"`) significant bits of a byte first.
+ * @returns A parser without fields, whose codecs may read the fields `Ctx`.
+ * @throws {TypeError} If an option is unknown or invalid.
+ * @example
+ * const Payload = bin<{ length: number }>().field("body", bytes("length"));
+ * const Packet = bin().u8("kind").u16le("length").merge(Payload);
  */
 export function bin<Ctx>(options?: BinOptions): Bin<{}, {}, Ctx>;
 export function bin(options: BinOptions = {}): unknown {

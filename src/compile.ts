@@ -26,7 +26,7 @@ import {
   type Path,
 } from "./errors.ts";
 
-/** A callback reads the complete logical prefix, in addition to named dependencies. */
+/** In `Reads`: a function of the earlier fields, which may read any of them. */
 export const ALL_FIELDS = Symbol("all fields");
 /** Earlier fields a codec reads (callbacks do not erase the named requirements). */
 export type Reads = readonly (string | typeof ALL_FIELDS)[];
@@ -138,6 +138,10 @@ export type Run = readonly (readonly [
   end: number,
 ])[];
 
+/**
+ * The generator of one function: codecs emit its code through it, while it
+ * tracks the offset, the bytes already checked, and the fields in scope.
+ */
 export class Gen {
   readonly mode: Mode;
   /** Whether emitted reads use the cursor's DataView. */
@@ -169,11 +173,6 @@ export class Gen {
     this.scope = scope ? "s" : undefined;
   }
 
-  /**
-   * Whether the function encodes (or sizes) values.
-   *
-   * @returns `true` when encoding or sizing.
-   */
   get encoding(): boolean {
     return this.mode === "encode" || this.mode === "size";
   }
@@ -365,7 +364,8 @@ export class Gen {
   }
 
   /**
-   * Moves to `offset`.
+   * Moves to `offset`, known only at run time (so no bytes after it are
+   * known to be checked).
    *
    * @param offset An expression of the offset.
    */

@@ -30,10 +30,16 @@ export type Standalone = {
 };
 
 /**
- * Decodes bytes into values of type `O`, and encodes values of type `I`.
- * `Ctx` is the type of the earlier fields the codec reads (e.g.
- * `bytes("count")`); only codecs that read none decode and encode on their own.
- * `Packed` marks codecs that instead need a direct parser field.
+ * A codec: decodes bytes to values of type `O`, and encodes values of type
+ * `I`. Parsers and matches are codecs too.
+ *
+ * `Ctx` is the type of the fields the codec reads from the parser around it
+ * (`bytes("count")` reads `count`): only codecs that read none decode and
+ * encode on their own. `Packed` marks bit fields, which only work as direct
+ * parser fields.
+ *
+ * A codec compiles to JavaScript when first used, once for each way it is
+ * used (decoding, encoding, sizing, streaming, …): a millisecond or two each.
  */
 export abstract class Codec<
   O = unknown,
@@ -49,7 +55,10 @@ export abstract class Codec<
     context: (ctx: Ctx) => void;
   };
 
-  /** Exact size in bytes of every value, if known; `NaN` if it varies (or is not known, e.g. for `lazy`). */
+  /**
+   * The size of every value in bytes, or `NaN` if it varies. It is also `NaN`
+   * for `lazy` codecs and bit fields, whose sizes are not known on their own.
+   */
   readonly size: number;
   /** Whether decoding checks something, so the value is read even when it is not wanted. @internal */
   readonly checks: boolean;
@@ -60,6 +69,7 @@ export abstract class Codec<
   /** Optional packing of consecutive parser fields. @internal */
   declare readonly packing?: Bits;
   #decoder: Compiled | undefined;
+  /** The decoder of `decode`, which views the input's whole buffer (see `readView`). */
   #bufferDecoder: Compiled | undefined;
   #encoder: Encoder | undefined;
   #sizer: Encoder | undefined;
@@ -134,12 +144,15 @@ export abstract class Codec<
   }
 
   /**
-   * Decodes a value at `offset` (bytes after it are ignored). Truncated input
-   * throws a `DecodeError`.
+   * Decodes the value at `offset` of `bytes`; bytes after it are ignored.
+   * `bytes` fields of the value are views of the input, not copies.
    *
-   * @param bytes The bytes to decode.
-   * @param offset Where the value starts in `bytes`.
-   * @returns The decoded value.
+   * @param bytes The input (a `Uint8Array`, such as a Node.js `Buffer`).
+   * @param offset Where the value starts (default 0).
+   * @returns The value (never a part of one: decoding throws instead).
+   * @throws {DecodeError} If the input ends inside the value, or holds an
+   *   invalid one: with the `code`, `path` and `offset` of the failure.
+   * @throws {RangeError} If `offset` is outside `bytes`.
    */
   decode(this: Standalone, bytes: Uint8Array, offset = 0): O {
     const cur = cursor(bytes, offset, true);
@@ -148,12 +161,16 @@ export abstract class Codec<
   }
 
   /**
-   * The bytes of `value`. Small results are views of a buffer shared with
-   * other results (as Node.js does for small buffers), but never overwritten;
-   * `slice()` them for a buffer of their own.
+   * Encodes `value`, checking it: numbers must fit their codecs, arrays and
+   * bytes their lengths, and text its strings. Counts and sizes read before
+   * a value are written from the value.
    *
-   * @param value The value to encode.
-   * @returns A view of the bytes written.
+   * @param value The value to encode (it is not changed).
+   * @returns A view of the bytes, in an `ArrayBuffer`. Small results share a
+   *   buffer with other results (as Node.js does for small `Buffer`s), but
+   *   are never overwritten: `slice()` one for a buffer of its own.
+   * @throws {EncodeError} If the value cannot be encoded, with the `path` of
+   *   the field that failed.
    */
   encode(this: Standalone, value: I): Uint8Array<ArrayBuffer> {
     const encoder = (this as unknown as AnyCodec).encoder();
@@ -161,6 +178,7 @@ export abstract class Codec<
     if (pool.busy) {
       return pool.encode(encoder, new Writer(new Uint8Array(1024)), value);
     }
+    // Results already returned keep the buffer they view.
     if (pool.bytes.length - pool.used < 4096) {
       pool.bytes = new Uint8Array(1 << 16);
       pool.used = 0;
@@ -178,13 +196,16 @@ export abstract class Codec<
   }
 
   /**
-   * Writes the bytes of `value` to `bytes` at `offset`; returns the offset
-   * after them. Bytes may have changed if it fails.
+   * Encodes `value` into `bytes` at `offset`, with the checks of `encode`.
    *
-   * @param value The value to encode.
-   * @param bytes The buffer to write to (it does not grow).
-   * @param offset Where the value starts in `bytes`.
-   * @returns The offset of the first byte after the value.
+   * @param value The value to encode; no part of it may be a view of `bytes`.
+   * @param bytes The buffer to write to, which may be shared memory. It does
+   *   not grow.
+   * @param offset Where the value starts (default 0).
+   * @returns The offset after the value.
+   * @throws {EncodeError} If the value cannot be encoded, or does not fit in
+   *   `bytes`. Part of it may have been written.
+   * @throws {RangeError} If `offset` is outside `bytes`.
    */
   encodeInto(
     this: Standalone,
@@ -200,12 +221,18 @@ export abstract class Codec<
 
   /**
    * The number of bytes `value` encodes to, computed without encoding it
-   * (but for `custom` codecs without a `size`, which are encoded); that of
-   * a fixed size without looking at it. It skips the checks of encoding:
-   * encoding may still fail.
+   * (except for `custom` codecs without a `size`, which are encoded).
+   *
+   * A codec of a fixed size returns its `size` without looking at the value.
+   * Most checks of encoding are skipped, so encoding may still fail.
    *
    * @param value The value to measure.
-   * @returns The number of bytes.
+   * @returns The number of bytes `encode` writes for it.
+   * @throws {EncodeError} If the value cannot be measured: e.g. a length is
+   *   not a count, or a function of yours throws.
+   * @example
+   * const Name = string(u8);
+   * Name.sizeOf("hé"); // 4: a length byte, then 3 bytes of UTF-8
    */
   sizeOf(this: Standalone, value: I): number {
     const codec = this as unknown as AnyCodec;
@@ -240,11 +267,14 @@ export abstract class Codec<
   }
 }
 
-/** Any codec (inputs and contexts are contravariant, so their top type is `never`). */
+/**
+ * Any codec, for constraints: `<C extends AnyCodec>(codec: C) => …`.
+ * (Inputs and contexts are contravariant, so their top type is `never`.)
+ */
 export type AnyCodec = Codec<unknown, never, never, boolean>;
 /** A codec argument (not `AnyCodec`: TypeScript would infer its `never` context for codecs written in the argument). */
 export type AnyCase = { readonly [types]: { packed?: false } };
-/** The type `C` decodes to. */
+/** The type of the values codec `C` decodes: `Output<typeof Header>`. */
 export type Output<C> = C extends { readonly [types]: { output: infer O } }
   ? O
   : never;
@@ -254,13 +284,19 @@ export type Packing<C> = C extends {
 }
   ? P
   : false;
-/** The type `C` encodes. */
+/**
+ * The type of the values codec `C` encodes: that of decoded values, except
+ * that literals and computed fields may be omitted (and arrays are readonly).
+ */
 export type Input<C> = C extends {
   readonly [types]: { input: (value: infer I) => void };
 }
   ? I
   : never;
-/** The earlier fields `C` reads. */
+/**
+ * The fields codec `C` reads from the parser around it, e.g. `{ count:
+ * number }` for `bytes("count")`; `unknown` if it reads none.
+ */
 export type Context<C> = C extends {
   readonly [types]: { context: (ctx: infer X) => void };
 }
@@ -298,13 +334,26 @@ export interface Span {
 }
 
 /**
- * Decodes the value of `codec` at `offset` in `bytes`, recording where each
- * field of its parsers is (e.g. to annotate the bytes).
+ * Decodes a value, and returns where each field of its parsers is: to
+ * annotate bytes, or compare them.
  *
- * @param codec The codec of the value.
- * @param bytes The bytes to decode.
- * @param offset Where the value starts.
- * @returns The fields, in the order they were decoded.
+ * Every field of every parser in the value has a span, in the order they
+ * were decoded, a field after the fields inside it (`["items", 0, "name"]`,
+ * then `["items"]`). Bit fields have the bytes of their run. Fields that `pick`
+ * steps over have `value: undefined`, and arrays it steps over without
+ * visiting their items have no spans for them.
+ *
+ * @param codec The codec of the value; it must read no fields around it.
+ * @param bytes The input.
+ * @param offset Where the value starts (default 0).
+ * @returns The spans of the fields: path, start and end offsets, and value.
+ * @throws {DecodeError} If decoding fails, as with `decode`.
+ * @throws {RangeError} If `offset` is outside `bytes`.
+ * @example
+ * const Header = bin().u8("version").field("name", string(u8));
+ * trace(Header, Uint8Array.of(1, 2, 104, 105));
+ * // [{ path: ["version"], start: 0, end: 1, value: 1 },
+ * //  { path: ["name"], start: 1, end: 4, value: "hi" }]
  */
 export function trace(
   codec: Standalone,
@@ -387,10 +436,25 @@ function cursor(bytes: Uint8Array, offset: number, whole = false): Cursor {
   };
 }
 
-/** Reads consecutive values from `bytes`. */
+/**
+ * Reads values one after the other from bytes in memory.
+ *
+ * @example
+ * const reader = new Reader(input);
+ * const values: number[] = [];
+ * while (!reader.done) values.push(reader.read(u16le));
+ */
 export class Reader {
   readonly #cur: Cursor;
 
+  /**
+   * A reader of the values in `bytes`, from `offset` on: `read` returns them
+   * one after the other, until `done`.
+   *
+   * @param bytes The input.
+   * @param offset Where the first value starts (default 0).
+   * @throws {RangeError} If `offset` is outside `bytes`.
+   */
   constructor(bytes: Uint8Array, offset = 0) {
     this.#cur = cursor(bytes, offset);
   }
@@ -398,7 +462,7 @@ export class Reader {
   /**
    * Where the next value starts.
    *
-   * @returns The offset of the next value in the bytes.
+   * @returns The offset in the bytes.
    */
   get offset(): number {
     return this.#cur.offset;
@@ -414,11 +478,12 @@ export class Reader {
   }
 
   /**
-   * Reads a value and moves past it (if it fails, the offset stays where it
-   * was).
+   * Decodes the value at the offset, and moves the offset past it.
    *
-   * @param codec The codec of the value.
-   * @returns The decoded value.
+   * @param codec The codec of the value; it must read no fields around it.
+   * @returns The value.
+   * @throws {DecodeError} If decoding fails; the offset then stays where it
+   *   was.
    */
   read<O>(codec: Codec<O, never>): O {
     const start = this.#cur.offset;

@@ -3,37 +3,67 @@ import { Codec, type AnyCodec } from "./codec.ts";
 import type { Gen } from "./compile.ts";
 import { DecodeError, EncodeError, within } from "./errors.ts";
 
-/** A value decoded by a custom codec, and the number of bytes it takes. */
+/** What the `decode` function of a `custom` codec returns. */
 export interface DecodeResult<O> {
   /** The value (which may be `undefined`). */
   value: O;
-  /** The number of bytes of the value, from the start of the bytes given. */
+  /**
+   * The number of bytes the value takes, from the start of the bytes
+   * `decode` got (at most their number; with a fixed `size`, exactly it).
+   */
   bytesRead: number;
 }
 
-/**
- * The functions of a custom codec. `decode` gets the bytes from the value
- * on (up to the end of the input or region; `final` if no more will
- * follow), and returns the value, or `undefined` if it needs more bytes:
- * it is called again with more. It may be called more than once for a
- * value, so it must have no side effects.
- */
+/** The functions of a `custom` codec. */
 export interface CustomOptions<O, I = O> {
   /**
    * The size of every value in bytes, if it is fixed: `decode` then gets
-   * exactly these bytes. Or the size of a value, which `sizeOf` uses instead
-   * of encoding it.
+   * exactly that many, and `encode` must return that many. Or a function of
+   * a value giving its size, which `sizeOf` calls instead of encoding it.
    */
   size?: number | ((value: I) => number) | undefined;
-  /** Decodes the value at the start of `bytes`, or returns `undefined` to get more bytes. */
+  /**
+   * Decodes the value at the start of `bytes`, which run to the end of the
+   * input (or region). Returns `undefined` if it needs more bytes and
+   * `final` is false: in a stream, more may follow, and it is called again
+   * with them. It must have no side effects, as it may be called again for
+   * the same value.
+   */
   decode: (bytes: Uint8Array, final: boolean) => DecodeResult<O> | undefined;
-  /** The bytes of a value. */
+  /** The bytes of a value. Without it, the codec only decodes. */
   encode: (value: I) => Uint8Array;
 }
 
 /**
- * A codec of functions of your own (for formats the other codecs cannot
- * express); without `encode`, it can only decode.
+ * A codec of functions of your own, for encodings the other codecs cannot
+ * express (for a conversion of bytes that other codecs read, `map` is
+ * enough).
+ *
+ * `decode(bytes, final)` returns `{ value, bytesRead }`, or `undefined` if
+ * it needs more bytes and `final` is false; without `encode`, the codec only
+ * decodes. Errors the functions throw become `DecodeError`s of code
+ * `"error"` (or `EncodeError`s) located at the field; a `DecodeError` that
+ * `decode` throws keeps its code, with its offset moved from the bytes
+ * `decode` got to the input's. See the README section on custom encodings,
+ * whose example is a varint.
+ *
+ * @param options `decode`, and optionally `encode` and `size`.
+ * @returns A codec of the values `decode` returns.
+ * @throws {TypeError} If an option is unknown or invalid (when defined).
+ * @example
+ * // Text up to a line feed, which may arrive in a later chunk of a stream
+ * const line = custom({
+ *   decode(bytes, final) {
+ *     const end = bytes.indexOf(10);
+ *     if (end === -1) {
+ *       if (final) throw new Error("no line feed");
+ *       return undefined;
+ *     }
+ *     const value = new TextDecoder().decode(bytes.subarray(0, end));
+ *     return { value, bytesRead: end + 1 };
+ *   },
+ *   encode: (text: string) => new TextEncoder().encode(`${text}\n`),
+ * });
  */
 export function custom<O, I = O>(options: CustomOptions<O, I>): Codec<O, I>;
 export function custom<O>(

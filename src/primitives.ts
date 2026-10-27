@@ -118,6 +118,8 @@ export class Primitive<
    * @param at An expression of the offset.
    */
   store(g: Gen, value: string, at: string): void {
+    // `typeof` first: bitwise operators call `valueOf` of objects, and throw
+    // on bigints and symbols.
     g.check(
       `!(${this.size <= 4 && !this.method.startsWith("Float") ? `typeof ${value} === "number" && ` : ""}${valid[this.method](value)})`,
       "invalid",
@@ -147,45 +149,45 @@ function primitive<T extends number | bigint>(
   return new Primitive<T>(name, size, method, le);
 }
 
-/** Unsigned 8-bit integers. */
+/** Unsigned 8-bit integers: 0 to 255. */
 export const u8 = primitive<number>("u8", 1, "Uint8");
-/** Signed 8-bit integers. */
+/** Signed 8-bit integers: -128 to 127. */
 export const i8 = primitive<number>("i8", 1, "Int8");
-/** Unsigned 16-bit integers, little endian. */
+/** Unsigned 16-bit integers, little endian: 0 to 65535. */
 export const u16le = primitive<number>("u16le", 2, "Uint16", true);
-/** Unsigned 16-bit integers, big endian. */
+/** Unsigned 16-bit integers, big endian: 0 to 65535. */
 export const u16be = primitive<number>("u16be", 2, "Uint16");
-/** Signed 16-bit integers, little endian. */
+/** Signed 16-bit integers, little endian: -32768 to 32767. */
 export const i16le = primitive<number>("i16le", 2, "Int16", true);
-/** Signed 16-bit integers, big endian. */
+/** Signed 16-bit integers, big endian: -32768 to 32767. */
 export const i16be = primitive<number>("i16be", 2, "Int16");
-/** Unsigned 24-bit integers, little endian. */
+/** Unsigned 24-bit integers, little endian: 0 to 16777215. */
 export const u24le = primitive<number>("u24le", 3, "Uint24", true);
-/** Unsigned 24-bit integers, big endian. */
+/** Unsigned 24-bit integers, big endian: 0 to 16777215. */
 export const u24be = primitive<number>("u24be", 3, "Uint24");
-/** Signed 24-bit integers, little endian. */
+/** Signed 24-bit integers, little endian: -8388608 to 8388607. */
 export const i24le = primitive<number>("i24le", 3, "Int24", true);
-/** Signed 24-bit integers, big endian. */
+/** Signed 24-bit integers, big endian: -8388608 to 8388607. */
 export const i24be = primitive<number>("i24be", 3, "Int24");
-/** Unsigned 32-bit integers, little endian. */
+/** Unsigned 32-bit integers, little endian: 0 to 4294967295. */
 export const u32le = primitive<number>("u32le", 4, "Uint32", true);
-/** Unsigned 32-bit integers, big endian. */
+/** Unsigned 32-bit integers, big endian: 0 to 4294967295. */
 export const u32be = primitive<number>("u32be", 4, "Uint32");
-/** Signed 32-bit integers, little endian. */
+/** Signed 32-bit integers, little endian: -2147483648 to 2147483647. */
 export const i32le = primitive<number>("i32le", 4, "Int32", true);
-/** Signed 32-bit integers, big endian. */
+/** Signed 32-bit integers, big endian: -2147483648 to 2147483647. */
 export const i32be = primitive<number>("i32be", 4, "Int32");
-/** Unsigned 64-bit integers (as `bigint`), little endian. */
+/** Unsigned 64-bit integers, little endian, as `bigint`s. */
 export const u64le = primitive<bigint>("u64le", 8, "BigUint64", true);
-/** Unsigned 64-bit integers (as `bigint`), big endian. */
+/** Unsigned 64-bit integers, big endian, as `bigint`s. */
 export const u64be = primitive<bigint>("u64be", 8, "BigUint64");
-/** Signed 64-bit integers (as `bigint`), little endian. */
+/** Signed 64-bit integers, little endian, as `bigint`s. */
 export const i64le = primitive<bigint>("i64le", 8, "BigInt64", true);
-/** Signed 64-bit integers (as `bigint`), big endian. */
+/** Signed 64-bit integers, big endian, as `bigint`s. */
 export const i64be = primitive<bigint>("i64be", 8, "BigInt64");
-/** 32-bit floats, little endian (numbers are rounded to them). */
+/** 32-bit floats, little endian: encoding rounds numbers to them. */
 export const f32le = primitive<number>("f32le", 4, "Float32", true);
-/** 32-bit floats, big endian (numbers are rounded to them). */
+/** 32-bit floats, big endian: encoding rounds numbers to them. */
 export const f32be = primitive<number>("f32be", 4, "Float32");
 /** 64-bit floats (JavaScript numbers), little endian. */
 export const f64le = primitive<number>("f64le", 8, "Float64", true);
@@ -195,7 +197,6 @@ export const f64be = primitive<number>("f64be", 8, "Float64");
 /** The number codecs by name: parsers have a method adding a field of each (starting at a byte). */
 export type Numbers = typeof primitives;
 
-/** The number codecs by name. */
 export const primitives = {
   u8,
   i8,

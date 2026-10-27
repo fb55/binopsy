@@ -1,6 +1,6 @@
 /** Errors of decoding and encoding, located by the path of a field (and an offset). */
 
-/** Where a value is: field names and array indexes. */
+/** Where a value is: field names and array indexes, e.g. `["items", 3, "name"]`. */
 export type Path = readonly (string | number)[];
 
 /** Thrown by decoders reaching the end of input that is not final (no error: more input is needed). */
@@ -51,18 +51,40 @@ function messageOf(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-/** Why decoding failed, where (`path` of field names and array indexes), and at which byte. */
+/**
+ * Why decoding failed, in which field (`path`), and at which byte (`offset`).
+ * The `message` is the `detail` with its location: ``unexpected end of input
+ * (10 bytes needed, 4 left) in `chunks[1].data` at offset 41``.
+ */
 export class DecodeError extends Error {
   override name = "DecodeError";
-  /** What failed: truncated input, an invalid value, a tag without a case, or an error thrown by a function. */
+  /**
+   * What failed: `"end-of-input"` (the input ends inside the value),
+   * `"invalid"` (a value failed a check, e.g. of a literal), `"no-match"` (a
+   * tag without a case), or `"error"` (a function of yours threw: its error
+   * is the `cause`).
+   */
   readonly code: "end-of-input" | "invalid" | "no-match" | "error";
   /** The failure, without its location. */
   readonly detail: string;
-  /** The offset of the value that failed. */
+  /** The offset of the value that failed, in the input. */
   readonly offset: number;
   /** The field names and array indexes of the value that failed. */
   readonly path: Path;
 
+  /**
+   * A decoding error, e.g. for a `custom` decoder to throw.
+   *
+   * @param code What failed: `"end-of-input"`, `"invalid"`, `"no-match"` or
+   *   `"error"`.
+   * @param detail The failure, without its location.
+   * @param offset The offset of the value that failed. Thrown by a `custom`
+   *   decoder, it is in the bytes the decoder got (binopsy moves it to the
+   *   input's).
+   * @param path Where the value is, in the value being decoded (binopsy
+   *   adds the path of the field in front).
+   * @param cause The error that caused it, if any.
+   */
   constructor(
     code: DecodeError["code"],
     detail: string,
@@ -78,7 +100,12 @@ export class DecodeError extends Error {
   }
 }
 
-/** Why encoding failed, and where (`path` of field names and array indexes). */
+/**
+ * Why encoding failed, and in which field (`path`). The `message` is the
+ * `detail` with its location: ``expected u8, got 300 in `name` ``. Errors
+ * that your functions throw while encoding become `EncodeError`s with the
+ * error as their `cause`.
+ */
 export class EncodeError extends Error {
   override name = "EncodeError";
   /** The failure, without its location. */
@@ -86,6 +113,12 @@ export class EncodeError extends Error {
   /** The field names and array indexes of the value that failed. */
   readonly path: Path = [];
 
+  /**
+   * An encoding error (binopsy adds the path of the field that failed).
+   *
+   * @param detail The failure, without its location.
+   * @param cause The error that caused it, if any.
+   */
   constructor(detail: string, cause?: unknown) {
     super(detail, { cause });
     this.detail = detail;

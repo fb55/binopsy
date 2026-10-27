@@ -14,13 +14,32 @@ const DONE = /* @__PURE__ */ Object.freeze({ value: undefined, done: true });
 type Chunks = AsyncIterator<Uint8Array> | Iterator<Uint8Array>;
 
 /**
- * Decodes the values of `codec` in the chunks of `source` (any iterable or
- * async iterable of bytes, e.g. a Node.js or web stream). Stopping (with
- * `break`, or a failure) closes the source.
+ * Decodes values of `codec` one after the other from chunks of bytes, as
+ * they arrive: values may span any number of chunks. The iteration ends
+ * with the source; leaving it (`break`, or an error) closes the source.
  *
- * @param codec The codec of the values.
- * @param source The chunks of bytes.
- * @returns An async iterator of the decoded values.
+ * Every value must take at least one byte; a value that reads up to the end
+ * of the input (e.g. `bytes(Infinity)`) ends with the stream. `bytes` values
+ * view the chunks: they stay valid as long as the source does not reuse
+ * them. Functions in the codec may run twice for a value, as it is first
+ * decoded as if its chunk held all of it. See the README section on streams.
+ *
+ * @param codec The codec of the values; it must read no fields around it.
+ * @param source Any iterable or async iterable of `Uint8Array`s: a Node.js
+ *   stream (a socket, `fs.createReadStream`), a web `ReadableStream`, or an
+ *   array of chunks.
+ * @returns An async iterator of the values. It throws a `DecodeError` (with
+ *   offsets in the stream, and code `"end-of-input"` if the stream ends in a
+ *   value), or the error of the source as it is.
+ * @throws {TypeError} If values of `codec` take no bytes (its `size` is 0),
+ *   or it is a bit field.
+ * @example
+ * const Message = bin().u8("type").field("text", string(u8));
+ * const Frame = sized(u16be, Message); // A 16-bit size, then the message
+ * const socket = connect(9000, "localhost"); // From "node:net"
+ * for await (const message of decodeStream(Frame, socket)) {
+ *   console.log(message.text);
+ * }
  */
 export function decodeStream<O>(
   codec: Codec<O, never>,

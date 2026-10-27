@@ -4,15 +4,28 @@ import { Codec } from "./codec.ts";
 import type { Gen } from "./compile.ts";
 import type { BitDomain, WithDomain } from "./domain.ts";
 
+/** The widths of bit fields: 1 to 53 bits (integers up to 2 ** 53 - 1 are exact numbers). */
 // oxfmt-ignore
 export type BitWidth = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 | 32 | 33 | 34 | 35 | 36 | 37 | 38 | 39 | 40 | 41 | 42 | 43 | 44 | 45 | 46 | 47 | 48 | 49 | 50 | 51 | 52 | 53;
 
 /**
- * A number of 1 to 53 bits. Use directly in `.field(name, bits(width))`;
- * consecutive fields share bytes in the parser's bit order.
+ * An unsigned integer of `width` bits, for a parser field: consecutive bit
+ * fields share bytes, and a run of them is padded to whole bytes (with zeros
+ * when encoding). Other fields start at the next byte.
  *
- * @param width The number of bits.
- * @returns A codec for a direct parser field, not a standalone value.
+ * The first field of a run takes the most significant bits of its byte,
+ * unless the parser is `bin({ bitOrder: "lsb" })`. `enumOf`, `map`,
+ * `literal` and `refine` of a bit field are bit fields too. See the README
+ * section on bit fields.
+ *
+ * @param width The number of bits, 1 to 53.
+ * @returns A codec for direct parser fields only: not for values on their
+ *   own, array items or match cases (TypeScript rejects them; from
+ *   JavaScript, they throw when first used). Its `size` is `NaN`.
+ * @throws {RangeError} If `width` is not an integer from 1 to 53.
+ * @example
+ * const Header = bin().field("version", bits(4)).field("ihl", bits(4)).u8("ttl");
+ * Header.decode(Uint8Array.of(0x45, 64)); // { version: 4, ihl: 5, ttl: 64 }
  */
 export function bits<const N extends BitWidth>(
   width: N,
@@ -46,6 +59,13 @@ export class Bits extends Codec<number> {
     this.width = width;
   }
 
+  /**
+   * The layout of a run with this field added.
+   *
+   * @param previous The layout of the run before it, if any.
+   * @param order The bit order of the parser.
+   * @returns The layout, whose `size` is the number of bytes this field adds.
+   */
   layout(previous: unknown, order: Order): Layout {
     const last = previous as Layout | undefined;
     if (last && last.order !== order) {

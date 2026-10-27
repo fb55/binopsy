@@ -99,15 +99,26 @@ export interface Matching<Tag extends string, Cs, Ctx, Allowed> extends Matched<
   Ctx
 > {
   /**
-   * Uses `codec` when the tag is `value`, a literal (a number, string,
-   * bigint or boolean) that has no case yet. (Functions in `codec` do not
-   * know the fields of the parser the match will be in: annotate them.)
+   * Adds a case: `codec` is used when the tag is `value`.
+   *
+   * @param value The tag value: a literal string, number, bigint or boolean
+   *   (or an enum member) without a case yet. `1` and `"1"` are different.
+   * @param codec The codec of the case. Functions in it do not know the
+   *   fields of the parser the match is in: annotate their argument.
+   * @returns A new match, with the case added.
+   * @throws {Error} If `value` has a case already (when defined).
    */
   case<const V extends Value, C extends AnyCase>(
     value: CaseArg<V, CaseValues<Cs>, Allowed>,
     codec: C,
   ): Matching<Tag, Cs | readonly [V, C], Ctx & Context<C>, Allowed>;
-  /** Uses `codec` for the other values (without it, they fail to decode and encode). */
+  /**
+   * Uses `codec` for the tag values without a case (without it, they fail to
+   * decode and encode).
+   *
+   * @param codec The codec of the other values.
+   * @returns A match that takes no more cases.
+   */
   otherwise<C extends AnyCase>(codec: C): Matched<Tag, Cs, C, Ctx & Context<C>>;
 }
 
@@ -116,15 +127,31 @@ type Selector<Ctx> =
   | ((fields: Ctx) => Value);
 
 /**
- * A codec picking one of its cases (added with `.case(value, codec)`) by
- * the earlier field `tag`, or by a value computed from the earlier fields.
- * In a parser, a tag field narrows its objects to a union with a variant
- * for each case (`.field(name, match)` for a value of its own, or
- * `.merge(match)` for cases that are parsers, whose fields are added).
- * Functions of the earlier fields need their argument annotated.
+ * A codec that picks one of its cases by a tag: an earlier field, or a value
+ * computed from the earlier fields. Add cases with `.case(value, codec)`,
+ * and `.otherwise(codec)` for the other values.
  *
- * @param tag The name of an earlier field, or a function of the fields.
+ * In a parser, `.field(name, match(…))` puts the case's value in a field,
+ * and `.merge(match(…))` (of cases that are parsers) adds the case's fields.
+ * A tag that names a field narrows the objects to a union, with a variant
+ * for each case. A tag without a case fails decoding (a `DecodeError` of
+ * code `"no-match"`) and encoding.
+ *
+ * A match does not know the fields of the parser it is in: annotate the
+ * argument of a function tag (`(o: { kind: number }) => …`).
+ *
+ * @param tag The name of an earlier field, or a function of the earlier
+ *   fields returning a string, number, bigint or boolean.
  * @returns A match without cases yet.
+ * @throws {TypeError} If `tag` is not a string or a function (when defined).
+ * @example
+ * const Message = bin()
+ *   .u8("type")
+ *   .field("value", match("type").case(1, i32le).case(2, string(u32le)));
+ * // { type: 1; value: number } | { type: 2; value: string }
+ * const Body = match((o: { kind: number }) => o.kind & 0xf)
+ *   .case(1, u8)
+ *   .otherwise(bytes(Infinity));
  */
 export function match<
   Ctx = never,
@@ -300,10 +327,11 @@ export class Match extends Codec {
 }
 
 /**
- * Emits a matched's field scopes, sharing the locals its cases define.
+ * Emits a match of parsers whose fields are added to a parser: the cases set
+ * shared variables, which later fields read.
  *
  * @param g The generator of the function.
- * @param matched A matched of parsers.
+ * @param matched A match of parsers.
  * @param emit Emits the code of a case's parser; returns its parts.
  * @returns The piece of the cases (whose parts are only kept when decoding).
  */

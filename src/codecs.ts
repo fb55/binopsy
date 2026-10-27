@@ -25,10 +25,11 @@ export type KeysOf<T, V> = {
 }[keyof T & string];
 
 /**
- * A length: a number (`Infinity`: up to the end of the input or region), a
- * codec of the count read before the value, the name of an earlier number
- * field, or a function of the earlier fields. Counts are non-negative safe
- * integers. (Outside a parser, any name is accepted, and becomes a requirement.)
+ * A length: a number (`Infinity`: up to the end of the input, or of the
+ * enclosing `sized` region), the name of an earlier number field, a function
+ * of the earlier fields, or a codec of a count read just before the value
+ * (`string(u8)`). Lengths are non-negative safe integers. Outside a parser,
+ * any name is accepted, and becomes a field the codec reads (see `Context`).
  */
 export type Length<Ctx = never> =
   | number
@@ -218,11 +219,19 @@ class Bytes extends Codec<Uint8Array> {
 }
 
 /**
- * Bytes of a length (in bytes), as views of the input: `new Uint8Array(b)`
- * copies them (`slice()` does not, for `Buffer`s).
+ * Bytes, decoded as views of the input: `new Uint8Array(b)` copies them
+ * (`slice()` does not, for `Buffer`s). Encoding checks their length, or
+ * writes the count read before them.
  *
- * @param length The number of bytes, a codec of it, a field or a function.
+ * @param length The number of bytes: a number (`Infinity` for the rest of
+ *   the input), an earlier field, a function of the earlier fields, or a
+ *   codec of a count read before the bytes. See the README section on lengths.
  * @returns A codec of `Uint8Array`s.
+ * @throws {TypeError} If `length` is invalid (when defined).
+ * @example
+ * const Chunk = bin().u32be("length").field("data", bytes("length"));
+ * const Blob = bytes(u16le); // A 16-bit count, then the bytes
+ * const Rest = bytes(Infinity); // Up to the end of the input
  */
 export function bytes<Ctx = never, const L extends Length<Ctx> = Length<Ctx>>(
   length: L,
@@ -230,7 +239,12 @@ export function bytes<Ctx = never, const L extends Length<Ctx> = Length<Ctx>>(
   return new Bytes(checked(length as AnyLength));
 }
 
-/** Text encodings. `latin1` maps bytes to the first 256 code points (it is not Windows-1252). */
+/**
+ * Text encodings. `latin1` maps bytes to the first 256 code points (it is
+ * not Windows-1252). Decoding keeps byte order marks; malformed UTF-8
+ * becomes U+FFFD, UTF-16 keeps unpaired surrogates, and ASCII ignores the
+ * high bit. Encoding rejects characters that latin1 or ASCII do not have.
+ */
 export type Encoding = "utf8" | "latin1" | "ascii" | "utf16le";
 
 /** How text is decoded and encoded. */
@@ -289,6 +303,7 @@ function fromCodes(size: 1 | 2, mask = 0xffff): Text["decode"] {
       codes.push((size === 1 ? buf[i] : buf[i] | (buf[i + 1] << 8)) & mask);
     }
     let text = "";
+    // In slices: spreading too many arguments overflows the stack.
     for (let i = 0; i < codes.length; i += 4096) {
       text += String.fromCharCode(...codes.slice(i, i + 4096));
     }
@@ -476,19 +491,31 @@ function fill(
   }
 }
 
-/** Options of a string stored in its length (or after its count, or up to the end of the input). */
+/** Options of `string(length, options)`. */
 export interface StringOptions {
-  /** The text encoding (default: `"utf8"`). `"utf16le"` keeps code units as they are (including BOMs and unpaired surrogates). */
+  /** The text encoding (default `"utf8"`). */
   encoding?: Encoding | undefined;
-  /** The byte (or UTF-16 unit) the text ends with, if it is shorter than its storage. */
+  /**
+   * The byte (or, in UTF-16, the 16-bit unit) ending text shorter than its
+   * length. Decoding stops at the first one. Encoding writes it after the
+   * text (in a fixed length, if there is room), and rejects text containing it.
+   */
   terminator?: number | undefined;
-  /** The byte (or UTF-16 unit) filling the storage after the text (default: zeros); without a terminator, it is removed when decoding. */
+  /**
+   * The byte (or UTF-16 unit) filling the rest of the length when encoding
+   * (default 0). Without a terminator, decoding removes it from the end of
+   * the text, and encoding rejects text ending with it.
+   */
   padRight?: number | undefined;
 }
 
-/** Options of a string ending with a terminator. */
+/** Options of `string({ terminator, max?, encoding? })`. */
 export interface TerminatedStringOptions<Ctx = never> {
-  /** The byte (or UTF-16 unit) the text ends with. */
+  /**
+   * The byte (or, in UTF-16, the 16-bit unit) ending the text. Decoding
+   * fails if the input ends first (unless `max` bytes are read); encoding
+   * rejects text containing it.
+   */
   terminator: number;
   /**
    * The most bytes the string takes, terminator included (default: no
@@ -496,10 +523,11 @@ export interface TerminatedStringOptions<Ctx = never> {
    * earlier fields. A string of `max` bytes has no terminator.
    */
   max?: Exclude<Length<Ctx>, Codec<number>> | undefined;
-  /** The text encoding (default: `"utf8"`). */
+  /** The text encoding (default `"utf8"`). */
   encoding?: Encoding | undefined;
 }
 
+/** Makes options outside `Shape` errors naming them (inferred type arguments skip excess property checks). */
 type NoExtra<T, Shape> = {
   [K in Exclude<keyof T, keyof Shape>]: {
     readonly [Reason in `unknown option ${K & string}`]: never;
@@ -540,12 +568,33 @@ function options(
 }
 
 /**
- * A string: stored in its length (a number, field or function: the whole
- * length is used), after its count (`string(u8)`), or up to the end of the
- * input (`Infinity`). It ends at its `terminator` or before its padding,
- * if it has them, and else takes all of its bytes. Or, given only options, a
- * string ending with a terminator (of at most `max` bytes, terminator
- * included: a string of `max` bytes has none).
+ * Text, stored in a length, or ending with a terminator.
+ *
+ * `string(length, options?)` takes all of `length` bytes (a number, an
+ * earlier field or a function): without options, the text fills them
+ * exactly, and a `terminator` or `padRight` allows shorter text. A codec as
+ * `length` (`string(u8)`) is a count of bytes read before the text, which
+ * encoding writes; `Infinity` takes the rest of the input.
+ *
+ * `string({ terminator, max?, encoding? })` takes the bytes up to and
+ * including the terminator, or `max` bytes (then without a terminator).
+ *
+ * Lengths are in bytes, also in UTF-16. Encoding rejects text that does not
+ * fit, contains its terminator, or (with padding alone) ends with its
+ * padding. See the README section on strings.
+ *
+ * @param length The number of bytes (a number, an earlier field, a function,
+ *   or a codec of a count read before the text), or the options of text
+ *   ending with a terminator.
+ * @param options The encoding (default `"utf8"`), terminator and padding.
+ * @returns A codec of strings.
+ * @throws {TypeError} If the length or an option is invalid (when defined).
+ * @example
+ * string(u8); // A length byte, then UTF-8 text
+ * string(16, { terminator: 0 }); // 16 bytes, the text ending with a zero
+ * string(16, { padRight: 0x20 }); // 16 bytes, the text padded with spaces
+ * string({ terminator: 0, max: 64 }); // Up to a zero, at most 64 bytes
+ * bin().u8("size").field("name", string("size", { encoding: "latin1" }));
  */
 export function string<
   Ctx = never,
@@ -974,10 +1023,29 @@ class List extends Codec<unknown[]> {
 }
 
 /**
- * Items of `item`: as many as `length` says (a count read before them, as
- * `array(u16le, u8)`, is written from the array), or up to the first that
- * passes `until`, which is included (encoding needs exactly the last item to
- * pass it). `Infinity`: up to the end of the input or region.
+ * Items of one codec: as many as `length` says, or up to an item that ends
+ * the array.
+ *
+ * A count read before the items (`array(u16le, u8)`) is written from the
+ * array; a field or function giving the length must agree with it when
+ * encoding. With `{ until }`, the array holds the items up to and including
+ * the first one for which `until` returns `true`, and encoding needs exactly
+ * its last item to pass. `Infinity` reads items up to the end of the input.
+ * Without a count, an item that takes no bytes fails (it would be read
+ * forever).
+ *
+ * @param item The codec of the items. Bit fields are not items: use a parser
+ *   of bit fields.
+ * @param length The number of items (a number, an earlier field, a function,
+ *   or a codec of a count read before them), or `{ until }`.
+ * @returns A codec of arrays.
+ * @throws {TypeError} If `length` is invalid (when defined).
+ * @example
+ * array(u16le, 4); // Four 16-bit numbers
+ * array(string(u8), u8); // A count byte, then the strings
+ * bin().u8("count").field("ratings", array(u16le, "count"));
+ * const Item = bin().u8("type").field("data", bytes(u8));
+ * array(Item, { until: (item) => item.type === 0 }); // Includes the last
  */
 export function array<
   O,
@@ -1126,14 +1194,24 @@ class Sized extends Codec {
 }
 
 /**
- * A value in a region of `length` bytes: it may not read past them (and
- * bytes it does not read are skipped); when encoding, the rest of them is
- * filled with zeros. A size read before the region (which must be of a
- * fixed size, e.g. `u32le`) is written after its value.
+ * A value in a region of `length` bytes: the value may not read past the
+ * region, and decoding skips the bytes it leaves. Encoding fills them with
+ * zeros, and fails if the value takes more.
  *
- * @param length The number of bytes, a codec of it, a field or a function.
- * @param codec The codec of the value in the region.
- * @returns A codec of the value.
+ * A size read before the region (`sized(u32le, codec)`) is written after
+ * the value is, so its codec must have a fixed size. In the region,
+ * `Infinity` lengths (e.g. `bytes(Infinity)`) end at its end.
+ *
+ * @param length The number of bytes (a number, an earlier field, a function,
+ *   or a codec of a size read before the region).
+ * @param codec The codec of the value.
+ * @returns A codec of the same values.
+ * @throws {TypeError} If `length` is invalid, or a codec without a fixed
+ *   size (when defined).
+ * @example
+ * const Message = bin().u8("type").field("text", string(u8));
+ * const Frame = sized(u16be, Message); // A 16-bit size, then the message
+ * const Entry = bin().u8("size").field("value", sized("size", Message));
  */
 export function sized<
   O,
@@ -1200,12 +1278,22 @@ class Literal extends Wrapper {
 }
 
 /**
- * A fixed value: decoding checks it (as `Object.is`), and encoding writes
- * it. Its input may be omitted (if `codec` encodes it).
+ * A fixed value: decoding fails on any other (a `DecodeError` of code
+ * `"invalid"`), and encoding writes it, so it may be omitted from the input.
+ *
+ * Values are compared as by `Object.is`, and must be ones `codec` stores
+ * exactly (not `0.1` in an `f32le`). The value may still be omitted through
+ * `sized` and `lazy`, but not through `map`, arrays, `optional` or `when`.
+ * A literal of a bit field is a bit field.
  *
  * @param codec The codec of the value.
  * @param value The value: a string, number, bigint or boolean.
  * @returns A codec of `value`.
+ * @throws {TypeError} If `value` is not a string, number, bigint or boolean
+ *   (when defined).
+ * @example
+ * const Header = bin().field("magic", literal(string(4), "DATA")).u8("version");
+ * Header.encode({ version: 1 }); // Uint8Array [68, 65, 84, 65, 1]
  */
 export function literal<
   O,
@@ -1270,7 +1358,22 @@ type SameDomain<I, O> = [I] extends [O]
   ? unknown
   : "refine needs a codec that encodes what it decodes";
 
-/** Values that pass `test`, when decoding and encoding (others fail with `message`); a type guard narrows them. */
+/**
+ * Values of `codec` that pass `test`, checked when decoding and when
+ * encoding: others fail with `message` (a `DecodeError` of code
+ * `"invalid"`, or an `EncodeError`). A type guard as `test` narrows the type.
+ *
+ * Checks run even for fields that `pick` steps over. A refinement of a bit
+ * field is a bit field.
+ *
+ * @param codec The codec of the values; it must encode what it decodes.
+ * @param test Whether a value is valid. It must have no side effects.
+ * @param message The detail of the errors (default `"invalid value"`).
+ * @returns A codec of the values that pass.
+ * @example
+ * const Width = refine(u32be, (width) => width > 0, "width must be positive");
+ * const Level = refine(u8, (n): n is 0 | 1 | 2 => n <= 2); // 0 | 1 | 2
+ */
 export function refine<O, I, Ctx, N extends O, P extends boolean = false>(
   codec: Codec<O, I, Ctx, P> & SameDomain<I, O>,
   test: (value: O) => value is N,
@@ -1304,6 +1407,8 @@ class Mapped extends Wrapper {
     this.toRaw = toRaw;
   }
 
+  // A value that is not wanted is not converted: the inner codec steps over
+  // the value, running its own checks.
   override emitRead(g: Gen, wanted: boolean): string {
     if (!wanted) return this.inner.emitRead(g, false);
     const at = g.let(g.at());
@@ -1337,8 +1442,23 @@ class Mapped extends Wrapper {
 }
 
 /**
- * Values converted both ways (the input is the decoded type, unless `encode`
- * takes another one), or, without `encode`, only when decoding.
+ * Values converted both ways: `decode` converts each value `codec` decodes,
+ * and `encode` converts each value back for `codec` to encode. Without
+ * `encode`, the codec only decodes (encoding throws an `EncodeError`).
+ *
+ * The input type is the decoded type, unless `encode` takes another. The
+ * functions must have no side effects; `pick` does not call `decode` for
+ * fields it steps over. A conversion of a bit field is a bit field.
+ *
+ * @param codec The codec of the raw values.
+ * @param convert `decode` from a raw value, and optionally `encode` back.
+ * @returns A codec of the converted values.
+ * @example
+ * // An IPv4 address, as "192.168.0.1"
+ * const address = map(bytes(4), {
+ *   decode: (b) => b.join("."),
+ *   encode: (text: string) => Uint8Array.from(text.split("."), Number),
+ * });
  */
 export function map<Raw, RawIn, Ctx, O, I = O, P extends boolean = false>(
   codec: Codec<Raw, RawIn, Ctx, P>,
@@ -1425,12 +1545,16 @@ class Presence extends Codec {
 }
 
 /**
- * A value after a flag that is non-zero if it is present, or `null`.
- * Encoding writes 0 for `null`, else 1.
+ * A value after a flag, or `null`: decoding reads the flag, then the value
+ * if the flag is not 0. Encoding writes 1 and the value, or 0 for `null`.
  *
- * @param flag The codec of the flag.
+ * @param flag The codec of the flag, e.g. `u8`.
  * @param codec The codec of the value.
- * @returns A codec of the value, or `null`.
+ * @returns A codec of the value or `null` (encoding takes `null`, not
+ *   `undefined`).
+ * @example
+ * const Comment = optional(u8, string(u8)); // A flag byte, then the text
+ * Comment.encode(null); // Uint8Array [0]
  */
 export function optional<O, I, Ctx = unknown>(
   flag: Codec<number>,
@@ -1444,13 +1568,23 @@ type Condition<Ctx> =
   | ((fields: Ctx) => boolean);
 
 /**
- * A value if `condition` holds, or `null`: an earlier field is truthy, or a
- * function of the earlier fields returns `true`. Encoding checks that values
- * are `null` exactly when it does not hold.
+ * A value if `condition` holds, or `null`. Encoding writes nothing for
+ * `null`, and checks that the value is `null` exactly when the condition
+ * does not hold.
  *
- * @param condition The name of an earlier field, or a function of the fields.
+ * @param condition The name of an earlier field (it holds if the field is
+ *   truthy), or a function of the earlier fields returning a boolean (other
+ *   results fail).
  * @param codec The codec of the value.
- * @returns A codec of the value, or `null`.
+ * @returns A codec of the value or `null`.
+ * @throws {TypeError} If `condition` is not a string or a function (when
+ *   defined).
+ * @example
+ * const Header = bin()
+ *   .u8("version")
+ *   .field("checksum", when((header) => header.version >= 2, u32le))
+ *   .u8("named")
+ *   .field("name", when("named", string(u8)));
  */
 export function when<
   O,
@@ -1533,11 +1667,24 @@ class Lazy extends Codec {
 }
 
 /**
- * A codec defined later (when first used), for formats that contain
- * themselves: annotate the codec it is in (`const Tree: Codec<Tree> = …`).
+ * The codec `factory` returns, called when it is first needed: for formats
+ * that contain themselves, or codecs defined later. TypeScript cannot infer
+ * the type of a codec that refers to itself: annotate it.
  *
- * @param factory Returns the codec (it is called once, when first needed).
+ * The codec sees no fields around it: functions in it get only the fields
+ * of its own parsers. Its `size` is `NaN`.
+ *
+ * @param factory Returns the codec. It is called once, when a codec using
+ *   it is first compiled (on its first `decode`, `encode`, …).
  * @returns A codec that decodes and encodes as the codec `factory` returns.
+ * @example
+ * interface Tree {
+ *   name: string;
+ *   children: Tree[];
+ * }
+ * const Tree: Codec<Tree> = bin()
+ *   .field("name", string(u8))
+ *   .field("children", array(lazy(() => Tree), u16le));
  */
 export function lazy<O, I = O, D extends boolean = false>(
   factory: () => Codec<O, I> & { readonly [defaulted]?: D },
@@ -1564,10 +1711,16 @@ class Fail extends Codec<never> {
 }
 
 /**
- * Fails decoding and encoding (e.g. for parts that are not supported).
+ * A codec that fails decoding and encoding, e.g. for parts of a format that
+ * are not supported.
  *
- * @param message The detail of the errors.
- * @returns A codec that fails.
+ * @param message The detail of the errors (a `DecodeError` of code
+ *   `"invalid"`, or an `EncodeError`).
+ * @returns A codec of no values.
+ * @example
+ * match("compression")
+ *   .case(0, bytes(u32le))
+ *   .case(1, fail("compressed data is not supported"));
  */
 export function fail(message: string): Codec<never> {
   return new Fail(message);

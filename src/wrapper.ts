@@ -42,17 +42,35 @@ export abstract class Wrapper extends Codec<
   }
 
   emitRead(g: Gen, wanted: boolean): string {
+    // A value that is not wanted is only read if a check needs it.
     if (!wanted && !this.checks) return this.inner.emitRead(g, false);
     const at = g.let(g.at());
     return this.readValue(g, this.inner.emitRead(g, true), at, wanted);
   }
 
+  /**
+   * Emits the checks and conversion of a decoded inner value.
+   *
+   * @param g The generator of the function.
+   * @param raw An expression of the inner value.
+   * @param at An expression of the offset of the value, for errors.
+   * @param wanted Whether the value is decoded (a wrapper that checks values
+   *   checks them either way).
+   * @returns An expression of the value, or "" if it is not wanted.
+   */
   protected abstract readValue(
     g: Gen,
     raw: string,
     at: string,
     wanted: boolean,
   ): string;
+  /**
+   * Emits the checks and conversion of a value to encode.
+   *
+   * @param g The generator of the function.
+   * @param value The variable holding the value.
+   * @returns An expression of the inner value to write.
+   */
   protected abstract writeValue(g: Gen, value: string): string;
 
   emitWrite(g: Gen, value: string): void {
