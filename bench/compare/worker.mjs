@@ -25,15 +25,31 @@ function project(actual, expected) {
 }
 
 /**
- * Checks all branches and counts on small values, including sliced input buffers.
+ * Checks all branches and counts on small values, and one value of the timed
+ * size, from sliced input buffers.
  * @param library Library name.
  * @param scenario Scenario name.
  */
 function verify(library, scenario) {
-  const adapter = create(library, scenario, true);
+  for (const [small, count] of [
+    [true, 21],
+    [false, 1],
+  ]) {
+    verifySamples(library, scenario, small, count);
+  }
+}
+
+/**
+ * @param library Library name.
+ * @param scenario Scenario name.
+ * @param small Whether to use the small numeric array.
+ * @param count How many samples to check.
+ */
+function verifySamples(library, scenario, small, count) {
+  const adapter = create(library, scenario, small);
   const reference = manual(scenario);
-  for (let i = 0; i < 21; i++) {
-    const value = sample(scenario, i, true);
+  for (let i = 0; i < count; i++) {
+    const value = sample(scenario, i, small);
     const bytes = reference.encode(value);
     const padded = Buffer.alloc(bytes.length + 11);
     padded.set(bytes, 7);

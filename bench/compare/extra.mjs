@@ -89,9 +89,12 @@ async function run() {
     case "stream":
     case "stream-small":
     case "stream-tiny": {
+      let records = 0;
       for await (const value of binopsy.decodeStream(codec, chunks())) {
+        records++;
         sum += value.uniqueId;
       }
+      if (records !== count) throw new Error("Wrong record count");
       break;
     }
     default: {

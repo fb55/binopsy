@@ -53,7 +53,11 @@ def main():
         jobs = [("binopsy", s, "extra") for s in args.modes.split(",")]
     if args.cold:
         jobs = [("binopsy", s, op) for s in args.scenarios.split(",") + ["wide128"] for op in operations]
-    variants = [("A", args.a), ("B", args.b)] if args.a and args.b else [("current", args.source)]
+    if bool(args.a) != bool(args.b) or (args.a and args.source):
+        parser.error("A/B needs both --a and --b, and no --source")
+    if args.a and not (args.extras or args.cold) and args.libraries != "binopsy":
+        parser.error("A/B compares binopsy builds: add --libraries binopsy")
+    variants = [("A", args.a), ("B", args.b)] if args.a else [("current", args.source)]
     for r in range(args.rounds):
         ordered = jobs[r % len(jobs):] + jobs[:r % len(jobs)]
         if r % 2:
