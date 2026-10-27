@@ -1,0 +1,74 @@
+README.md
+  s_a7a733ac705686::t_c050314fb1c7ca 178,187-190,193-196,215,464,517-518,563
+test/errors.test.ts
+  s_a7a733ac705686::t_c050314fb1c7ca 6,35,50
+test/package/consumer.ts
+  s_a7a733ac705686::t_60df2294f8e577 8,79-83
+test/computed.test.ts
+  s_a7a733ac705686::t_c050314fb1c7ca 6,163-167
+CHANGELOG.md
+  s_a7a733ac705686::t_c050314fb1c7ca 5-7,22-23
+src/index.ts
+  s_a7a733ac705686::t_dc634acac4d88c 63
+bench/compare/schemas.mjs
+  s_a7a733ac705686::t_c050314fb1c7ca 9,21-22,26-35
+  s_a7a733ac705686::t_b668103ff7ee5d 23-25
+src/bin.ts
+  s_a7a733ac705686::t_dc634acac4d88c 261,367,371,432-433,451,456-457,461,466,472,670,767
+  s_a7a733ac705686::t_60df2294f8e577 370,829-831
+  s_a7a733ac705686::t_b668103ff7ee5d 391-395,838
+  s_a7a733ac705686::t_64c3ff6c5ed8c9 834,837
+  s_a7a733ac705686::t_fbfcac080a641b 458
+  s_a7a733ac705686::t_95a1c5f68a3e5c 373,375,455,503,669,766
+  s_a7a733ac705686::t_48bb41939fdc1c 399,402-404,406,408-409,454,864-865
+test/pick.test.ts
+  s_a7a733ac705686::t_c050314fb1c7ca 6,153-154
+test/bits.test.ts
+  s_a7a733ac705686::t_9ab133aaf34068 41,45-47
+  s_a7a733ac705686::t_60df2294f8e577 4-11,22-27,34-36,48-50,54-57,62-66
+  s_a7a733ac705686::t_0b4915505d891a 28-33,39-40,42-44,51-53,58-61,67-68
+  s_a7a733ac705686::t_95a1c5f68a3e5c 37-38
+  s_a7a733ac705686::t_c050314fb1c7ca 72-76,82-85,92,98,104,110,116-118,124-126,135-138,146-148,167,203,207-208,211,237,245,252-254,264-266,273,283-284
+  s_a7a733ac705686::t_7d924c7d3f9335 3
+src/codec.ts
+  s_a7a733ac705686::t_95a1c5f68a3e5c 9,54
+  s_a7a733ac705686::t_dc634acac4d88c 53
+test/matches.test.ts
+  s_a7a733ac705686::t_c050314fb1c7ca 6,245,247-249
+src/match.ts
+  s_a7a733ac705686::t_fbfcac080a641b 296,391-400
+  s_a7a733ac705686::t_64c3ff6c5ed8c9 346-347,373-375
+  s_a7a733ac705686::t_b668103ff7ee5d 351,354,357-358,360-363,365-372,376-389
+  s_a7a733ac705686::t_9028c9e1671aa3 142,159,169,197-198,295
+test/types/examples.test-d.ts
+  s_a7a733ac705686::t_c050314fb1c7ca 14,260-263,266-269,306-308
+src/bits.ts
+  s_a7a733ac705686::t_95a1c5f68a3e5c 192-193,200
+  s_a7a733ac705686::t_dc634acac4d88c 1-22,27-34,37-43,46-48,51-52,55-61,63-111,113-179,183-184,186,188-191,196,198-199,201-247
+  s_a7a733ac705686::t_fbfcac080a641b 23-24,35-36,44-45,49-50,53-54
+  s_a7a733ac705686::t_b668103ff7ee5d 25-26,62,112,180-182,185,194-195
+  s_a7a733ac705686::t_2b36e718c745a1 187,197
+test/types/inference.test-d.ts
+  s_a7a733ac705686::t_60df2294f8e577 6,150-178
+  s_a7a733ac705686::t_b100af6e207b43 179-180
+test/decode.test.ts
+  s_a7a733ac705686::t_c050314fb1c7ca 6,26-27,81
+bench/compare/README.md
+  s_a7a733ac705686::t_e325283d906d23 166-167
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "50a3d6a9119960c1bc2e9a19a2c3bede5e57bb7b",
+  "prompts": {},
+  "sessions": {
+    "s_a7a733ac705686": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a17c4d-bf6b-7a80-bab5-bc4f5d48bc89",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Felix Boehm <188768+fb55@users.noreply.github.com>"
+    }
+  }
+}
