@@ -163,6 +163,8 @@ selection, and records/checks `COUNT`, `RUNS`, `WARMUPS`, and `WARM_MS`.
 Without `--output`, raw JSON goes to the gitignored `results/` directory.
 `--libraries binopsy,binary-parser`, `--scenarios header,record`, and
 `--operation encode` filter runs.
+For interleaved A/B runs use `--a /path/to/baseline/lib --b /path/to/candidate/lib` with `--libraries binopsy --rounds 5 --cpu 6`. The bit-field schema adapts to the former parser method for historical builds and uses `.field(name, bits(width))` for current builds.
+
 `--source /path/to/lib` selects a historical binopsy build without changing
 any competitor version or benchmark scenario. A `src` directory is also accepted
 for development, but release comparisons use JavaScript to avoid including Node

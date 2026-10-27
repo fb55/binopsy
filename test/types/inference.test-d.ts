@@ -3,6 +3,7 @@ import { describe, expectTypeOf, it } from "vitest";
 import {
   array,
   bin,
+  bits,
   custom,
   fail,
   lazy,
@@ -144,5 +145,36 @@ describe("Output and Input", () => {
     );
     expectTypeOf<Context<typeof Tree>>().toEqualTypeOf<unknown>();
     expectTypeOf<Input<typeof Tree>>().toEqualTypeOf<TreeInput>();
+  });
+});
+
+describe("Bit codecs", () => {
+  it("infer number inputs and outputs and retain width constraints", () => {
+    const field = bits(53);
+    expectTypeOf<Output<typeof field>>().toEqualTypeOf<number>();
+    expectTypeOf<Input<typeof field>>().toEqualTypeOf<number>();
+    const record = bin().field("a", bits(1)).field("b", field);
+    expectTypeOf<Output<typeof record>>().toEqualTypeOf<{
+      a: number;
+      b: number;
+    }>();
+    expectTypeOf<Input<typeof record>>().toEqualTypeOf<{
+      a: number;
+      b: number;
+    }>();
+    // @ts-expect-error Zero bits is not a field.
+    bits(0);
+    // @ts-expect-error Numbers have at most 53 bits.
+    bits(54);
+    // @ts-expect-error Widths are integers.
+    bits(1.5);
+    // @ts-expect-error Unconstrained numbers need a width check.
+    bits(Number("3"));
+    // @ts-expect-error Bit fields encode numbers.
+    record.encode({ a: "1", b: 2 });
+    // @ts-expect-error Bit fields remain required.
+    record.encode({ a: 1 });
+    // @ts-expect-error Bit fields use field(name, bits(width)).
+    bin().bits("a", 3);
   });
 });

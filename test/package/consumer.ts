@@ -5,6 +5,7 @@
 import {
   array,
   bin,
+  bits,
   bytes,
   decodeStream,
   lazy,
@@ -75,3 +76,8 @@ export async function names(
 }
 // @ts-expect-error internals are not part of the types
 export const internal = Packet.emitRead;
+
+export const packed = bin()
+  .field("flags", bits(3))
+  .field("value", bits(5))
+  .encode({ flags: 1, value: 2 });

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   array,
   bin,
+  bits,
   i32le,
   literal,
   match,
@@ -241,9 +242,11 @@ describe("Matches", () => {
   describe.each([
     ["after a byte", false],
     ["after bit fields", true],
-  ] as const)("merged %s", (_, bits) => {
+  ] as const)("merged %s", (_, packed) => {
     const cause = new Error("selector failed");
-    const parser = (bits ? bin().bits("head", 3) : bin().u8("head")).merge(
+    const parser = (
+      packed ? bin().field("head", bits(3)) : bin().u8("head")
+    ).merge(
       match((): number => {
         throw cause;
       }).otherwise(bin().u8("value")),

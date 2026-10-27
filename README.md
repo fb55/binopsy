@@ -175,7 +175,7 @@ function handle(message: Message) {
 Fields smaller than a byte, such as versions and flags, share bytes. An IPv4 header:
 
 ```ts
-import { bin, bytes, map } from "binopsy";
+import { bin, bits, bytes, map } from "binopsy";
 
 // An IPv4 address, as "192.168.0.1"
 const address = map(bytes(4), {
@@ -184,16 +184,16 @@ const address = map(bytes(4), {
 });
 
 const IPv4 = bin()
-  .bits("version", 4)
-  .bits("ihl", 4) // The header's length, in 32-bit words
-  .bits("dscp", 6)
-  .bits("ecn", 2)
+  .field("version", bits(4))
+  .field("ihl", bits(4)) // The header's length, in 32-bit words
+  .field("dscp", bits(6))
+  .field("ecn", bits(2))
   .u16be("totalLength")
   .u16be("identification")
-  .bits("reserved", 1)
-  .bits("dontFragment", 1)
-  .bits("moreFragments", 1)
-  .bits("fragmentOffset", 13)
+  .field("reserved", bits(1))
+  .field("dontFragment", bits(1))
+  .field("moreFragments", bits(1))
+  .field("fragmentOffset", bits(13))
   .u8("ttl")
   .u8("protocol")
   .u16be("checksum")
@@ -212,7 +212,7 @@ IPv4.decode(packet);
 //   source: "192.168.0.1", destination: "192.168.0.199", options: Uint8Array(0) }
 ```
 
-- `.bits(name, width)` adds a number of 1 to 53 bits. Bit fields that follow each other share their bytes; other fields start at the next byte. A run of bit fields is padded to whole bytes, with zeros when encoding.
+- `.field(name, bits(width))` adds a number of 1 to 53 bits. Bit fields that follow each other share their bytes; other fields start at the next byte. A run of bit fields is padded to whole bytes, with zeros when encoding.
 - The first bit field takes the most significant bits of its byte, as in network protocols. `bin({ bitOrder: "lsb" })` starts with the least significant ones.
 - `map(codec, { decode, encode })` converts values both ways. Without `encode`, it only decodes.
 
@@ -444,7 +444,6 @@ const Record = bin().u8("count").pipe(withValues);
 `bin()` is an empty parser; each method returns a new parser with a field added, typed from the fields before it.
 
 - `.u8(name)`, `.i16le(name)`, … add a number field (a method for each number codec).
-- `.bits(name, width)` adds a field of 1 to 53 bits.
 - `.field(name, codec)` adds a field of any codec, including parsers and matches.
 - `.merge(parser)` adds the fields of another parser, of one of several (`cond ? A : B`), or of the cases of a match of parsers.
 - `.skip(size)` skips bytes, and `.align(size)` skips to a multiple of `size` bytes from the start of the parser (a merged parser aligns from its own start); encoding writes zeros.
@@ -462,6 +461,7 @@ Field names are unique: adding a name twice throws when the parser is defined (T
 | ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | `u8`, `i8`, `u16le`, `i32be`, `f32le`, `f64be`, … | Integers of 8, 16, 24 and 32 bits and floats, little (`le`) or big (`be`) endian (`f32` rounds numbers to 32 bits)      |
 | `u64le`, `i64be`, …                               | 64-bit integers, as `bigint`                                                                                            |
+| `bits(width)`                                     | Numbers of 1 to 53 bits, as direct parser fields (consecutive bit fields share bytes)                                   |
 | `bytes(length)`                                   | `Uint8Array`s, viewing the input (`new Uint8Array(b)` copies them)                                                      |
 | `string(length, options?)`                        | Strings stored in `length` bytes (see [strings](#strings))                                                              |
 | `string({ terminator, max?, encoding? })`         | Strings ending with a terminator, of at most `max` bytes                                                                |
@@ -514,6 +514,8 @@ For other representations of bytes, such as hex, use `map(bytes(length), …)`.
 
 ### Bit fields
 
+Use `.field("flags", bits(3))`. `bits(width)` is only supported as a direct parser field: standalone use, arrays such as `array(bits(4), 2)`, and wrappers throw when compiled. For arrays of packed records, use `array(bin().field("a", bits(4)).field("b", bits(4)), 2)`. Its standalone `size` is `NaN`; the parser computes the size of each whole-byte run.
+
 The bit fields of a merged parser continue the run (if they have the same bit order: adjoining runs of different orders throw); those of nested parsers, of merged matches, and of merged parsers that compute or pick fields start at a byte.
 
 ### Fields that functions see
@@ -558,7 +560,7 @@ An `EncodeError` has a `path`, a `detail` and a `cause`, but no `code` or offset
 - `Codec<O, I>` is the type of codecs; `Bin<T, I>` that of parsers, and `Struct<T, I>` that of parsers adding no more fields (computing some, or picking some).
 - `Context<typeof codec>` is the type of the fields a codec reads around it. A codec reading such fields (e.g. `bytes("length")`) only decodes and encodes in a parser that has them: `decode`, `encode`, `sizeOf`, `trace`, `Reader` and streams take codecs that read none.
 - `AnyCodec` and `AnyBin` accept any codec and any parser, in generic functions.
-- Options and parts: `BinOptions`, `StringOptions`, `TerminatedStringOptions`, `Encoding`, `Length`, `CustomOptions`, `DecodeResult` and `Path`.
+- Options and parts: `BinOptions`, `BitWidth`, `StringOptions`, `TerminatedStringOptions`, `Encoding`, `Length`, `CustomOptions`, `DecodeResult` and `Path`.
 
 TypeScript may miss a misspelled option in a union of option objects (`cond ? { terminator: 0 } : { padRight: 0 }`); options are also checked when a codec is defined.
 

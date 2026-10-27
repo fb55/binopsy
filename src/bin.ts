@@ -190,9 +190,6 @@ type NumberFields<T, I, Ctx> = {
     Ctx
   >;
 };
-// oxfmt-ignore
-type BitWidth = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 | 32 | 33 | 34 | 35 | 36 | 37 | 38 | 39 | 40 | 41 | 42 | 43 | 44 | 45 | 46 | 47 | 48 | 49 | 50 | 51 | 52 | 53;
-
 /** Names surely picked (not unions of names). */
 type Certain<Names extends readonly string[]> = number extends Names["length"]
   ? never
@@ -260,14 +257,8 @@ export interface Struct<T, I = T, Ctx = unknown> extends Codec<T, I, Ctx> {
  */
 export interface Bin<T, I = T, Ctx = unknown>
   extends Struct<T, I, Ctx>, NumberFields<T, I, Ctx> {
-  /** Adds a field of `width` (1 to 53) bits; bit fields that follow each other share their bytes. */
-  bits<const K extends string>(
-    name: K,
-    width: BitWidth,
-  ): Bin<Add<T, K, number>, AddInput<I, K, number>, Ctx>;
-
   /**
-   * Adds a field (starting at a byte). Its codec may read the fields before
+   * Adds a field (bit fields share bytes). Its codec may read the fields before
    * it (`bytes("count")`, `bytes((o) => o.count * 2)`); functions get their
    * decoded values, or, when encoding, the values being encoded. A match on
    * an earlier field narrows the objects to a variant for each case.
@@ -373,15 +364,15 @@ export function bin(options: BinOptions = {}): unknown {
 
 // Run time: a parser is a list of entries.
 
-type Order = "msb" | "lsb";
+export type Order = "msb" | "lsb";
 type Compute = (value: Obj) => unknown;
 
-type Entry =
-  | { readonly kind: "field"; readonly name: string; readonly codec: AnyCodec }
+/** A parser entry. @internal */
+export type Entry =
   | {
-      readonly kind: "bits";
+      readonly kind: "field";
       readonly name: string;
-      readonly width: number;
+      readonly codec: AnyCodec;
       readonly order: Order;
     }
   /** A codec whose fields are added without flattening its entries. */
@@ -397,44 +388,30 @@ type Entry =
  * @returns The names, each once.
  */
 function names(entry: Entry, definite = false): string[] {
-  switch (entry.kind) {
-    case "group": {
-      return entry.codec.names(definite);
-    }
-    case "pad": {
-      return [];
-    }
-    default: {
-      return [entry.name];
-    }
-  }
+  return entry.kind === "pad"
+    ? []
+    : entry.kind === "group"
+      ? entry.codec.names(definite)
+      : [entry.name];
 }
 
 /**
- * Adds the fields around the parser that an entry reads.
+ * Adds an entry's dependencies and names, checking that none is already taken.
  *
  * @param entry The entry being added.
- * @param definite The fields before it set whatever the cases of matches.
- * @param reads The fields around the parser read by the entries before it.
+ * @param own The names of the fields before it.
+ * @param definite Those of them set whatever the cases of matches.
+ * @param reads Dependencies not already supplied by earlier fields.
  */
-function addReads(
+function addNames(
   entry: Entry,
-  definite: ReadonlySet<string>,
+  own: Set<string>,
+  definite: Set<string>,
   reads: Set<Reads[number]>,
 ): void {
   for (const name of readsOf(entry)) {
     if (name === ALL_FIELDS || !definite.has(name)) reads.add(name);
   }
-}
-
-/**
- * Adds an entry's names, checking that none is already taken.
- *
- * @param entry The entry being added.
- * @param own The names of the fields before it.
- * @param definite Those of them set whatever the cases of matches.
- */
-function addNames(entry: Entry, own: Set<string>, definite: Set<string>): void {
   for (const name of names(entry)) {
     if (typeof name !== "string" || own.has(name) || name === "__proto__") {
       throw new Error(`invalid or duplicate field \`${name}\``);
@@ -452,8 +429,8 @@ export class Parser extends Codec<Obj> {
   private readonly own: ReadonlySet<string>;
   /** Those set whatever the cases of its matches (where they are not, fields around it are read). */
   private readonly definite: ReadonlySet<string>;
-  /** Bits in the last run, whose final byte later bit fields may share. */
-  private readonly tailBits: number;
+  /** Opaque layout of the last run, maintained by its codec. */
+  private readonly tail: unknown;
   /** The fields it computes (it adds no more fields). */
   readonly computes: readonly (readonly [string, Compute])[] | undefined;
   /** The fields it decodes (it only decodes). */
@@ -471,28 +448,28 @@ export class Parser extends Codec<Obj> {
     const reads = new Set(prefix?.reads);
     let size = prefix?.size ?? 0;
     let checks = prefix?.checks ?? false;
-    let bits = prefix?.tailBits ?? 0;
+    let tail = prefix?.tail;
     for (let i = prefix?.entries.length ?? 0; i < entries.length; i++) {
       const entry = entries[i];
-      addReads(entry, definite, reads);
-      addNames(entry, own, definite);
-      if (entry.kind === "bits") {
-        size += Math.ceil((bits + entry.width) / 8) - Math.ceil(bits / 8);
-        bits += entry.width;
+      addNames(entry, own, definite, reads);
+      if (entry.kind === "field" && entry.codec.packing) {
+        const layout = entry.codec.packing.layout(tail, entry.order);
+        size += layout.size;
+        tail = layout;
       } else if (entry.kind === "pad") {
         size += entry.align ? Number.NaN : entry.size;
-        bits = 0;
+        tail = undefined;
       } else {
         const { codec } = entry;
         size += codec.size;
         checks ||= codec.checks;
-        bits = 0;
+        tail = undefined;
       }
     }
     super(size, checks || Boolean(computes), [...reads]);
     this.own = own;
     this.definite = definite;
-    this.tailBits = bits;
+    this.tail = tail;
     this.entries = entries;
     this.order = order;
     this.computes = computes;
@@ -523,14 +500,7 @@ export class Parser extends Codec<Obj> {
     if (!(codec instanceof Codec)) {
       throw new TypeError(`the codec of \`${name}\` is not a codec`);
     }
-    return this.add([{ kind: "field", name, codec }]);
-  }
-
-  bits(name: string, width: number): Parser {
-    if (!(Number.isInteger(width) && width >= 1 && width <= 53)) {
-      throw new RangeError(`\`${name}\` has ${width} bits, not 1 to 53`);
-    }
-    return this.add([{ kind: "bits", name, width, order: this.order }]);
+    return this.add([{ kind: "field", name, codec, order: this.order }]);
   }
 
   skip(size: number): Parser {
@@ -611,14 +581,6 @@ export class Parser extends Codec<Obj> {
       throw new Error(
         "no fields can be added to a parser computing fields, or decoding some",
       );
-    }
-    const last = this.entries.at(-1);
-    if (
-      last?.kind === "bits" &&
-      entries[0]?.kind === "bits" &&
-      last.order !== entries[0].order
-    ) {
-      throw new Error("bit fields of different orders cannot share bytes");
     }
     return new Parser([...this.entries, ...entries], this.order, this);
   }
@@ -704,8 +666,8 @@ export class Parser extends Codec<Obj> {
     const start = this.aligns ? g.let(valueOffset(g)) : "";
     for (let i = 0; i < entries.length; i++) {
       const entry = entries[i];
-      if (entry.kind === "bits") {
-        i = this.decodeBits(g, i, want, parts, output);
+      if (entry.kind === "field" && entry.codec.packing) {
+        i = entry.codec.packing.decodeRun(g, entries, i, want, parts, output);
       } else if (entry.kind === "pad") {
         pad(g, entry, start);
       } else if (entry.kind === "field") {
@@ -757,52 +719,6 @@ export class Parser extends Codec<Obj> {
   }
 
   /**
-   * Emits code decoding the bit fields from entry `i` on; returns the index of
-   * the last.
-   *
-   * @param g The generator of the function.
-   * @param i The index of the first bit field.
-   * @param want Whether a field (by name and entry index) is decoded.
-   * @param parts The parts of the object, to which the fields are added.
-   * @param output The names of the fields in the object.
-   * @returns The index of the last entry of the run.
-   */
-  private decodeBits(
-    g: Gen,
-    i: number,
-    want: (name: string, i: number) => boolean,
-    parts: Piece[],
-    output: ReadonlySet<string>,
-  ): number {
-    const fields = bitRun(this.entries, i);
-    // The bytes each field starts and ends in, for errors.
-    let end = 0;
-    const ends = fields.map(({ name, width }): [string, number, number] => [
-      name,
-      Math.floor(end / 8),
-      Math.ceil((end += width) / 8),
-    ]);
-    const bytes = Math.ceil(end / 8);
-    g.field = undefined;
-    g.need(bytes, ends);
-    let offset = 0;
-    for (const [j, field] of fields.entries()) {
-      g.field = field.name;
-      const v = want(field.name, i + j)
-        ? g.let(extract(g.at(), field.order, offset, field.width))
-        : "";
-      if (g.mode === "trace") g.trace(g.at(), v, g.at(bytes));
-      if (v) {
-        g.fields.set(field.name, v);
-        if (output.has(field.name)) parts.push({ name: field.name, v });
-      }
-      offset += field.width;
-    }
-    g.skip(bytes);
-    return i + fields.length - 1;
-  }
-
-  /**
    * Emits code encoding the fields of the object in variable `object`.
    *
    * @param g The generator of the function.
@@ -847,8 +763,8 @@ export class Parser extends Codec<Obj> {
     const start = this.aligns ? g.let(valueOffset(g)) : "";
     for (let i = 0; i < entries.length; i++) {
       const entry = entries[i];
-      if (entry.kind === "bits") {
-        i = this.encodeBits(g, i, object, computed);
+      if (entry.kind === "field" && entry.codec.packing) {
+        i = entry.codec.packing.encodeRun(g, entries, i, object, computed);
       } else if (entry.kind === "pad") {
         pad(g, entry, start);
       } else if (entry.kind === "field") {
@@ -873,75 +789,6 @@ export class Parser extends Codec<Obj> {
       }
     }
     g.field = undefined;
-  }
-
-  /**
-   * Emits code encoding the bit fields from entry `i` on; returns the index of
-   * the last.
-   *
-   * @param g The generator of the function.
-   * @param i The index of the first bit field.
-   * @param object The variable holding the object.
-   * @param computed The variables of computed fields, by name.
-   * @returns The index of the last entry of the run.
-   */
-  private encodeBits(
-    g: Gen,
-    i: number,
-    object: string,
-    computed: ReadonlyMap<string, string>,
-  ): number {
-    const fields = bitRun(this.entries, i);
-    const total = fields.reduce((n, f) => n + f.width, 0);
-    const bytes: string[][] = Array.from(
-      { length: Math.ceil(total / 8) },
-      () => [],
-    );
-    let offset = 0;
-    for (const { name, width, order } of fields) {
-      g.field = name;
-      const v = g.let(
-        computed.get(name) ?? `${object}[${JSON.stringify(name)}]`,
-        "let",
-      );
-      g.fields.set(name, v);
-      g.check(
-        width > 32
-          ? `!(Number.isInteger(${v}) && ${v} >= 0 && ${v} <= ${2 ** width - 1})`
-          : width === 32
-            ? `typeof ${v} !== "number" || ${v} >>> 0 !== ${v}`
-            : `typeof ${v} !== "number" || (${v} & ${2 ** width - 1}) !== ${v}`,
-        "invalid",
-        `"expected an unsigned integer of ${width} bits, got " + String(${v})`,
-      );
-      // Wider values in two parts: the bits above the low 32, and the low 32.
-      const pieces =
-        width > 32
-          ? [
-              { v: g.let(`Math.floor(${v} / ${2 ** 32})`), width: width - 32 },
-              { v: g.let(`${v} >>> 0`), width: 32 },
-            ]
-          : [{ v, width }];
-      if (order === "lsb") pieces.reverse();
-      for (const piece of pieces) {
-        // The parts of the piece in each byte it is in.
-        const end = offset + piece.width;
-        for (let j = offset >> 3; j <= (end - 1) >> 3; j++) {
-          const shift = order === "msb" ? 8 * j + 8 - end : offset - 8 * j;
-          const part =
-            shift >= 0 ? `${piece.v} << ${shift}` : `${piece.v} >>> ${-shift}`;
-          bytes[j].push(`(${part}) & 255`);
-        }
-        offset = end;
-      }
-    }
-    g.field = undefined;
-    g.need(bytes.length);
-    for (const [j, parts] of bytes.entries()) {
-      g.write(`buf[${g.at(j)}] = ${parts.join(" | ")};`);
-    }
-    g.skip(bytes.length);
-    return i + fields.length - 1;
   }
 }
 
@@ -979,36 +826,21 @@ function valueOffset(g: Gen): string {
 }
 
 /**
- * The fields an entry reads.
- *
- * @param entry The entry of a parser.
- * @returns The fields its codec reads (none for bit fields).
+ * The dependencies of an entry.
+ * @param entry The parser entry.
+ * @returns Its dependencies (padding reads none).
  */
 function readsOf(entry: Entry): Reads {
-  if (entry.kind === "bits" || entry.kind === "pad") return [];
-  return entry.codec.reads;
+  return entry.kind === "pad" ? [] : entry.codec.reads;
 }
 
-/** A codec adding fields to a parser. */
-export interface Merged {
-  names(definite?: boolean): string[];
-  decodeGroup(
-    g: Gen,
-    wanted: ReadonlySet<string>,
-    later: ReadonlySet<string>,
-  ): Piece[];
-  encodeFields(
-    g: Gen,
-    object: string,
-    supplied: ReadonlyMap<string, string>,
-  ): void;
-}
+/** A codec adding fields to a parser. @internal */
+export type Merged = Pick<Parser, "names" | "decodeGroup" | "encodeFields">;
 
 /** A decoded field, or a codec's deferred object construction. */
 export type Piece =
   | Field
   | {
-      readonly count: number;
       object(g: Gen, parts: readonly Piece[], into?: string): string;
     };
 export interface Field {
@@ -1029,8 +861,8 @@ export function objectOf(
   parts: readonly Piece[],
   into?: string,
 ): string {
-  const deferred = parts.find((part) => !("name" in part));
-  if (deferred && "object" in deferred) return deferred.object(g, parts, into);
+  const deferred = parts.find((part) => "object" in part);
+  if (deferred) return deferred.object(g, parts, into);
   const fields = parts as Field[];
   if (into !== undefined) {
     for (const { name, v } of fields) {
@@ -1063,74 +895,6 @@ function project(
     }
   }
   return projected;
-}
-
-/**
- * The bit fields from entry `i` on that share bytes.
- *
- * @param entries The entries of a parser.
- * @param i The index of the first bit field.
- * @returns The consecutive bit fields of the first one's bit order.
- */
-function bitRun(
-  entries: readonly Entry[],
-  i: number,
-): Extract<Entry, { kind: "bits" }>[] {
-  const fields: Extract<Entry, { kind: "bits" }>[] = [];
-  for (let j = i; j < entries.length; j++) {
-    const entry = entries[j];
-    if (
-      entry.kind !== "bits" ||
-      entry.order !== (entries[i] as { order: Order }).order
-    ) {
-      break;
-    }
-    fields.push(entry);
-  }
-  return fields;
-}
-
-/**
- * The expression of the `width` bits `offset` bits into the bytes at `at`.
- *
- * @param at An expression of the offset of the bytes.
- * @param order The order of the bits in a byte.
- * @param offset The number of bits before the field.
- * @param width The number of bits of the field.
- * @returns An expression of the unsigned integer the bits hold.
- */
-function extract(
-  at: string,
-  order: Order,
-  offset: number,
-  width: number,
-): string {
-  if (width > 32) {
-    // The bits above the low 32 (first in msb order), times 2 ** 32.
-    const high = order === "msb" ? offset : offset + 32;
-    const low = order === "msb" ? offset + width - 32 : offset;
-    return `(${extract(at, order, high, width - 32)}) * ${2 ** 32} + (${extract(at, order, low, 32)})`;
-  }
-  const first = offset >> 3;
-  const span = ((offset + width - 1) >> 3) - first + 1;
-  const byte = (k: number): string => `buf[${at} + ${first + k}]`;
-  // The bits from `first` on, big (msb) or little (lsb) endian.
-  const shift = order === "msb" ? 8 * span - (offset % 8) - width : offset % 8;
-  if (span <= 4) {
-    const bytes = Array.from({ length: span }, (_, k) =>
-      order === "msb"
-        ? `${byte(k)} << ${8 * (span - 1 - k)}`
-        : `${byte(k)} << ${8 * k}`,
-    );
-    const value = `(${bytes.join(" | ")}) >>> ${shift}`;
-    return width === 32 ? value : `(${value}) & ${2 ** width - 1}`;
-  }
-  // Five bytes: more bits than bitwise operators take.
-  const bytes = Array.from({ length: span }, (_, k) =>
-    order === "msb" ? byte(k) : byte(span - 1 - k),
-  );
-  const value = bytes.reduce((acc, b) => `(${acc}) * 256 + ${b}`);
-  return `Math.floor((${value}) / ${2 ** shift}) % ${2 ** width}`;
 }
 
 /**

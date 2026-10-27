@@ -11,6 +11,7 @@ import { describe, expectTypeOf, it } from "vitest";
 import {
   array,
   bin,
+  bits,
   bytes,
   custom,
   DecodeError,
@@ -256,16 +257,16 @@ describe("The README", () => {
     });
 
     const IPv4 = bin()
-      .bits("version", 4)
-      .bits("ihl", 4) // The header's length, in 32-bit words
-      .bits("dscp", 6)
-      .bits("ecn", 2)
+      .field("version", bits(4))
+      .field("ihl", bits(4)) // The header's length, in 32-bit words
+      .field("dscp", bits(6))
+      .field("ecn", bits(2))
       .u16be("totalLength")
       .u16be("identification")
-      .bits("reserved", 1)
-      .bits("dontFragment", 1)
-      .bits("moreFragments", 1)
-      .bits("fragmentOffset", 13)
+      .field("reserved", bits(1))
+      .field("dontFragment", bits(1))
+      .field("moreFragments", bits(1))
+      .field("fragmentOffset", bits(13))
       .u8("ttl")
       .u8("protocol")
       .u16be("checksum")
@@ -302,7 +303,9 @@ describe("The README", () => {
       options: Uint8Array;
     }>();
 
-    const Lsb = bin({ bitOrder: "lsb" }).bits("a", 3).bits("b", 5);
+    const Lsb = bin({ bitOrder: "lsb" })
+      .field("a", bits(3))
+      .field("b", bits(5));
     expectTypeOf<Output<typeof Lsb>>().toEqualTypeOf<{
       a: number;
       b: number;

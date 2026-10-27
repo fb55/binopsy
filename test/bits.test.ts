@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import { bin, type Codec } from "../src/index.ts";
+import {
+  array,
+  bin,
+  bits,
+  literal,
+  u8,
+  type BitWidth,
+  type Codec,
+} from "../src/index.ts";
 import {
   bytewise,
   collect,
@@ -11,53 +19,111 @@ import {
 } from "./helpers.ts";
 
 describe("Bit fields", () => {
+  it.each([0, 54, -1, 1.5, Number.NaN, Infinity])(
+    "reject width %s",
+    (width) => {
+      expect(() => bits(width as BitWidth)).toThrow(RangeError);
+    },
+  );
+
+  it.each<[string, Standalone, unknown]>([
+    ["standalone", bits(4), 1],
+    ["in arrays", array(bits(4), 2), [1, 2]],
+    ["wrapped", literal(bits(4), 1), 1],
+  ])("require direct parser fields, %s", (_, codec, value) => {
+    expect(() => codec.decode(Uint8Array.of(0x12))).toThrow(
+      /direct parser fields/u,
+    );
+    expect(() => codec.encode(value as never)).toThrow(/direct parser fields/u);
+    expect(() => codec.sizeOf(value as never)).toThrow(/direct parser fields/u);
+  });
+
+  it("keep a reused codec independent of its parser and bit order", async () => {
+    const nibble = bits(4);
+    const msb = bin().field("a", nibble).field("b", nibble);
+    const lsb = bin({ bitOrder: "lsb" }).field("a", nibble).field("b", nibble);
+    await roundtrip(msb, "12", { a: 1, b: 2 });
+    await roundtrip(lsb, "21", { a: 1, b: 2 });
+    await roundtrip(array(msb, 2), "12 34", [
+      { a: 1, b: 2 },
+      { a: 3, b: 4 },
+    ]);
+  });
+
+  it("resolve defaults and computed counts before a packed field is read", async () => {
+    const counted = bin()
+      .field("tag", literal(u8, 1))
+      .field("count", bits(3))
+      .field("flag", bits(5))
+      .field("data", array(bin().u8("v"), "count"))
+      .computed("count", (value) => value.data.length);
+    const value = { flag: 2, data: [{ v: 7 }, { v: 8 }] };
+    const wire = counted.encode(value);
+    expect([...wire]).toStrictEqual([1, 0x42, 7, 8]);
+    expect(counted.sizeOf(value)).toBe(4);
+    await expect(collect(counted, bytewise(wire))).resolves.toStrictEqual([
+      { tag: 1, count: 2, ...value },
+    ]);
+  });
+
   it.each<[name: string, codec: Standalone, bytes: string, value: unknown]>([
     [
       "share bytes, most significant bits first",
-      bin().bits("a", 1).bits("b", 2).bits("c", 5).bits("d", 4),
+      bin()
+        .field("a", bits(1))
+        .field("b", bits(2))
+        .field("c", bits(5))
+        .field("d", bits(4)),
       "d4 f0",
       { a: 1, b: 2, c: 20, d: 0xf },
     ],
     [
       "share bytes, least significant bits first",
-      bin({ bitOrder: "lsb" }).bits("x", 4).bits("y", 8).bits("z", 4),
+      bin({ bitOrder: "lsb" })
+        .field("x", bits(4))
+        .field("y", bits(8))
+        .field("z", bits(4)),
       "21 43",
       { x: 1, y: 0x32, z: 4 },
     ],
     // #12
     [
       "have 32 bits each, in a run of 64",
-      bin().bits("a", 32).bits("b", 32),
+      bin().field("a", bits(32)).field("b", bits(32)),
       "fffffffe 89abcdef",
       { a: 0xfffffffe, b: 0x89abcdef },
     ],
     [
       "have up to 53 bits, most significant bits first",
-      bin().bits("a", 4).bits("b", 44),
+      bin().field("a", bits(4)).field("b", bits(44)),
       "0123456789ab",
       { a: 0, b: 0x123456789ab },
     ],
     [
       "have up to 53 bits, least significant bits first",
-      bin({ bitOrder: "lsb" }).bits("a", 4).bits("b", 44),
+      bin({ bitOrder: "lsb" }).field("a", bits(4)).field("b", bits(44)),
       "ab 89 67 45 23 01",
       { a: 0xb, b: 0x123456789a },
     ],
     [
       "are followed by numbers at the next byte",
-      bin().bits("a", 3).u8("b").bits("c", 4).u16be("d"),
+      bin().field("a", bits(3)).u8("b").field("c", bits(4)).u16be("d"),
       "e0 12 f0 3456",
       { a: 7, b: 0x12, c: 0xf, d: 0x3456 },
     ],
     [
       "continue in merged parsers",
-      bin().bits("a", 4).merge(bin().bits("c", 4)),
+      bin()
+        .field("a", bits(4))
+        .merge(bin().field("c", bits(4))),
       "12",
       { a: 1, c: 2 },
     ],
     [
       "start at a byte in nested parsers",
-      bin().bits("a", 4).field("n", bin().bits("c", 4)),
+      bin()
+        .field("a", bits(4))
+        .field("n", bin().field("c", bits(4))),
       "10 20",
       { a: 1, n: { c: 2 } },
     ],
@@ -66,10 +132,10 @@ describe("Bit fields", () => {
   it("ignore their padding when decoding", () => {
     expect(
       bin()
-        .bits("a", 1)
-        .bits("b", 2)
-        .bits("c", 5)
-        .bits("d", 4)
+        .field("a", bits(1))
+        .field("b", bits(2))
+        .field("c", bits(5))
+        .field("d", bits(4))
         .decode(hex("d4 ff")),
     ).toStrictEqual({ a: 1, b: 2, c: 20, d: 0xf });
   });
@@ -77,9 +143,9 @@ describe("Bit fields", () => {
   it.each(["msb", "lsb"] as const)(
     "keep reused prefixes independent, %s first",
     (bitOrder) => {
-      const prefix = bin({ bitOrder }).bits("head", 3);
-      const narrow = prefix.bits("tail", 5);
-      const wide = prefix.bits("tail", 13);
+      const prefix = bin({ bitOrder }).field("head", bits(3));
+      const narrow = prefix.field("tail", bits(5));
+      const wide = prefix.field("tail", bits(13));
       const aligned = prefix.u8("tail");
       expect([prefix.size, narrow.size, wide.size, aligned.size]).toStrictEqual(
         [1, 1, 2, 2],
@@ -98,7 +164,7 @@ describe("Bit fields", () => {
   );
 
   // Runs of fields of [width, value], with fields of 32 bits at several bit offsets.
-  describe.each<[name: string, fields: [number, number][]]>([
+  describe.each<[name: string, fields: [BitWidth, number][]]>([
     [
       "of up to 32 bits",
       [
@@ -134,15 +200,15 @@ describe("Bit fields", () => {
       "are placed bit by bit, %s first",
       async (bitOrder) => {
         type Bits = Codec<Record<string, number>> & {
-          bits(name: string, width: number): Bits;
+          field(name: string, codec: Codec<number>): Bits;
         };
         let parser = bin({ bitOrder }) as unknown as Bits;
         const value: Record<string, number> = {};
-        const bits = fields.reduce((n, [width]) => n + width, 0);
-        const wire = new Uint8Array(Math.ceil(bits / 8));
+        const total = fields.reduce((n, [width]) => n + width, 0);
+        const wire = new Uint8Array(Math.ceil(total / 8));
         let offset = 0;
         for (const [i, [width, field]] of fields.entries()) {
-          parser = parser.bits(`f${i}`, width);
+          parser = parser.field(`f${i}`, bits(width));
           value[`f${i}`] = field;
           for (let j = 0; j < width; j++, offset++) {
             const bit =
@@ -168,7 +234,7 @@ describe("Bit fields", () => {
     [53, 2 ** 53],
   ])("of %i bits reject %s when encoding", (width, a) =>
     encodeFails(
-      bin().bits("a", width),
+      bin().field("a", bits(width)),
       { a },
       new RegExp(`expected an unsigned integer of ${width} bits`, "u"),
     ),
@@ -176,16 +242,16 @@ describe("Bit fields", () => {
 
   it("are decoded on their own when picked", () => {
     expect(
-      bin().bits("a", 3).bits("b", 5).pick("b").decode(hex("ff")),
+      bin().field("a", bits(3)).field("b", bits(5)).pick("b").decode(hex("ff")),
     ).toStrictEqual({ b: 31 });
   });
 
   it.each(["msb", "lsb"] as const)(
     "start at a byte in merged parsers that compute or pick fields, %s first",
     async (bitOrder) => {
-      const part = bin({ bitOrder }).bits("b", 1);
-      const first = bin({ bitOrder }).bits("a", 1);
-      const plain = first.merge(part).bits("c", 6);
+      const part = bin({ bitOrder }).field("b", bits(1));
+      const first = bin({ bitOrder }).field("a", bits(1));
+      const plain = first.merge(part).field("c", bits(6));
       expect(plain.size).toBe(1);
       expect(plain.encode({ a: 1, b: 1, c: 1 })).toStrictEqual(
         Uint8Array.of(bitOrder === "msb" ? 193 : 7),
@@ -195,14 +261,16 @@ describe("Bit fields", () => {
           ? Uint8Array.of(128, 128, 4)
           : Uint8Array.of(1, 1, 1);
       const value = { a: 1, b: 1, c: 1 };
-      const computed = first.merge(part.computed("b", () => 1)).bits("c", 6);
+      const computed = first
+        .merge(part.computed("b", () => 1))
+        .field("c", bits(6));
       expect(computed.size).toBe(3);
       expect(computed.encode({ a: 1, c: 1 })).toStrictEqual(wire);
       expect(computed.decode(wire)).toStrictEqual(value);
       await expect(collect(computed, bytewise(wire))).resolves.toStrictEqual([
         value,
       ]);
-      const picked = first.merge(part.pick("b")).bits("c", 6);
+      const picked = first.merge(part.pick("b")).field("c", bits(6));
       expect(picked.size).toBe(3);
       expect(picked.decode(wire)).toStrictEqual(value);
       await expect(collect(picked, bytewise(wire))).resolves.toStrictEqual([
@@ -212,8 +280,8 @@ describe("Bit fields", () => {
   );
 
   it("of different orders do not share bytes", () => {
-    const first = bin().bits("a", 1);
-    const part = bin({ bitOrder: "lsb" }).bits("b", 1);
+    const first = bin().field("a", bits(1));
+    const part = bin({ bitOrder: "lsb" }).field("b", bits(1));
     expect(() => first.merge(part)).toThrow(/different orders/u);
     expect(
       first.merge(part.computed("b", () => 1)).encode({ a: 1 }),

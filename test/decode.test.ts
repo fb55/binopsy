@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   array,
   bin,
+  bits,
   bytes,
   custom,
   DecodeError,
@@ -22,8 +23,8 @@ describe("Traces", () => {
   it("locate the fields of parsers, inlined or not", () => {
     const Item = bin().u8("kind").field("name", string(u8));
     const Packet = bin()
-      .bits("version", 4)
-      .bits("flags", 4)
+      .field("version", bits(4))
+      .field("flags", bits(4))
       .field("at", bin().u8("x"))
       .field("items", array(Item, u8));
     const spans = trace(Packet, hex("ff 13 05 01 01 01 61"), 1);
@@ -77,7 +78,7 @@ describe("Traces", () => {
 
   it("locate fields in regions, and those stepped over", () => {
     const parser = bin()
-      .bits("a", 8)
+      .field("a", bits(8))
       .field("r", sized(1, bin().u8("b")))
       .u8("c");
     const spans = trace(parser.pick("r"), hex("01 02 03"));

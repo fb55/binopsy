@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   array,
   bin,
+  bits,
   bytes,
   lazy,
   literal,
@@ -149,8 +150,8 @@ describe("Picked fields", () => {
 // Cases have literal defaults (through `sized` and `lazy`) and computed bit fields.
 const groups = (bitOrder: "msb" | "lsb") => {
   const plain = bin({ bitOrder })
-    .bits("a", 3)
-    .bits("b", 9)
+    .field("a", bits(3))
+    .field("b", bits(9))
     .field(
       "len",
       literal(

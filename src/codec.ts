@@ -6,6 +6,7 @@
  * specialized functions.
  */
 import type { Merged } from "./bin.ts";
+import type { Bits } from "./bits.ts";
 import {
   compile,
   type Decoder as Compiled,
@@ -49,6 +50,8 @@ export abstract class Codec<O = unknown, I = O, Ctx = unknown> {
   readonly reads: Reads;
   /** A match whose cases are parsers, if this codec can merge their fields. @internal */
   declare readonly merged?: (AnyCodec & Merged) | undefined;
+  /** Optional packing of consecutive parser fields. @internal */
+  declare readonly packing?: Pick<Bits, "layout" | "decodeRun" | "encodeRun">;
   #decoder: Compiled | undefined;
   #bufferDecoder: Compiled | undefined;
   #encoder: Encoder | undefined;

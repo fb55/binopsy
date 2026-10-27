@@ -6,7 +6,7 @@
  * @returns The codec.
  */
 export function schema(binopsy, name, small = false) {
-  const { bin, array, bytes, string, match, u8, u16le, u32le } = binopsy;
+  const { bin, bits, array, bytes, string, match, u8, u16le, u32le } = binopsy;
   const point = () => bin().f32le("x").f32le("y").u16le("id");
   switch (name) {
     case "header": {
@@ -18,12 +18,21 @@ export function schema(binopsy, name, small = false) {
         .u32le("sequence");
     }
     case "bits": {
-      return bin()
-        .bits("version", 3)
-        .bits("flags", 5)
-        .bits("length", 12)
-        .bits("kind", 4)
-        .u16le("sequence");
+      // Historical builds keep their original API for interleaved A/B runs.
+      const field = (parser, key, width) =>
+        bits === undefined
+          ? parser.bits(key, width)
+          : parser.field(key, bits(width));
+      let parser = bin();
+      for (const [key, width] of [
+        ["version", 3],
+        ["flags", 5],
+        ["length", 12],
+        ["kind", 4],
+      ]) {
+        parser = field(parser, key, width);
+      }
+      return parser.u16le("sequence");
     }
     case "numeric": {
       return bin().field("values", array(u32le, small ? 8 : 4096));

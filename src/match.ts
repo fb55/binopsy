@@ -139,6 +139,7 @@ function label(value: Value): string {
 /** One of several codecs, picked by a tag (or `otherwise`, for other tag values). @internal */
 export class Match extends Codec {
   override readonly merged: this | undefined;
+  readonly codecs: readonly AnyCodec[];
   readonly tag: string | ((fields: Obj) => Value);
   readonly cases: readonly (readonly [Value, AnyCodec])[];
   readonly default: AnyCodec | undefined;
@@ -155,6 +156,7 @@ export class Match extends Codec {
       typeof tag === "string" ? tag : ALL_FIELDS,
       ...codecs.flatMap((codec) => codec.reads),
     ]);
+    this.codecs = codecs;
     this.tag = tag;
     this.cases = cases;
     this.default = otherwise;
@@ -164,7 +166,7 @@ export class Match extends Codec {
   }
 
   names(definite = false): string[] {
-    const all = structsOf(this).map((s) => s.names(definite));
+    const all = (this.codecs as Parser[]).map((s) => s.names(definite));
     return [...new Set(all.flat())].filter(
       (name) => !definite || all.every((fields) => fields.includes(name)),
     );
@@ -192,9 +194,8 @@ export class Match extends Codec {
   }
 
   override fills(): boolean {
-    return [...this.cases.map(([, codec]) => codec), this.default].some(
-      (codec) =>
-        codec !== undefined && (codec.preset !== undefined || codec.fills()),
+    return this.codecs.some(
+      (codec) => codec.preset !== undefined || codec.fills(),
     );
   }
 
@@ -278,18 +279,6 @@ export class Match extends Codec {
 }
 
 /**
- * The parsers of the cases of a matched.
- *
- * @param matched A matched of parsers.
- * @returns The parsers of the cases in order, then the default (if any).
- */
-function structsOf(matched: Match): Parser[] {
-  const all = matched.cases.map(([, codec]) => codec);
-  if (matched.default) all.push(matched.default);
-  return all as unknown as Parser[];
-}
-
-/**
  * Emits a matched's field scopes, sharing the locals its cases define.
  *
  * @param g The generator of the function.
@@ -303,13 +292,8 @@ function emitCases(
   emit: (struct: Parser) => Piece[],
 ): Piece {
   g.field = undefined;
-  const structs = structsOf(matched);
-  const shared = new Map<string, string>();
-  for (const struct of structs) {
-    for (const name of struct.names()) {
-      if (!shared.has(name)) shared.set(name, g.hoist());
-    }
-  }
+  const structs = matched.codecs as Parser[];
+  const shared = new Map(matched.names().map((name) => [name, g.hoist()]));
   const branch = g.hoist();
   const outer = g.fields;
   const parts: Piece[][] = [];
@@ -359,74 +343,60 @@ function emitCases(
     }
     g.present.set(v, when || "false");
   }
-  return new Cases(branch, parts);
+  const result: Cases = { branch, cases: parts, object: objectCases };
+  return result;
 }
 
 /** Deferred construction of an object containing merged cases. */
-class Cases {
-  readonly count: number;
+interface Cases {
   readonly branch: string;
   readonly cases: readonly (readonly Piece[])[];
-  constructor(branch: string, cases: readonly (readonly Piece[])[]) {
-    this.branch = branch;
-    this.cases = cases;
-    this.count = cases.length;
-  }
-  /**
-   * Builds an object: complete literals for few combinations (faster for small
-   * objects), or assignments to avoid copying objects and linear case lookup.
-   *
-   * @param g The generator of the function.
-   * @param parts The fields, and the cases of matches, in order.
-   * @param into An existing object to add the fields to.
-   * @returns An object expression, or the variable holding the object.
-   */
-  object(g: Gen, parts: readonly Piece[], into?: string): string {
-    const combinations = parts.reduce(
-      (n, part) => ("name" in part ? n : n * part.count),
-      1,
-    );
-    if (into !== undefined || combinations > 16) {
-      const object = into ?? g.let("{}");
-      for (const part of parts) {
-        if (part instanceof Cases) {
-          g.line(`switch (${part.branch}) {`);
-          for (const [j, fields] of part.cases.entries()) {
-            g.line(`case ${j}:`);
-            objectOf(g, fields, object);
-            g.line("break;");
-          }
-          g.line("}");
-        } else {
-          objectOf(g, [part], object);
-        }
-      }
-      return object;
-    }
-    const i = parts.indexOf(this);
-    const matched = parts[i] as Cases;
-    return choice(matched, (j) =>
-      objectOf(g, [
-        ...parts.slice(0, i),
-        ...matched.cases[j],
-        ...parts.slice(i + 1),
-      ]),
-    );
-  }
+  object: typeof objectCases;
 }
-
 /**
- * An expression that is `of(j)` if the matched is in its case `j`.
+ * Builds an object: complete literals for few combinations (faster for small
+ * objects), or assignments to avoid copying objects and linear case lookup.
  *
- * @param matched The cases, and the variable of the index of the one decoded.
- * @param of The expression for a case, given its index.
- * @returns A chain of conditional expressions (or `of(0)`, for one case).
+ * @param g The generator of the function.
+ * @param parts The fields, and the cases of matches, in order.
+ * @param into An existing object to add the fields to.
+ * @returns An object expression, or the variable holding the object.
  */
-function choice(matched: Cases, of: (j: number) => string): string {
-  const last = matched.cases.length - 1;
+function objectCases(g: Gen, parts: readonly Piece[], into?: string): string {
+  const combinations = parts.reduce(
+    (n, part) => ("name" in part ? n : n * (part as Cases).cases.length),
+    1,
+  );
+  if (into !== undefined || combinations > 16) {
+    const object = into ?? g.let("{}");
+    for (const part of parts) {
+      if ("name" in part) {
+        objectOf(g, [part], object);
+      } else {
+        const branch = part as Cases;
+        g.line(`switch (${branch.branch}) {`);
+        for (const [j, fields] of branch.cases.entries()) {
+          g.line(`case ${j}:`);
+          objectOf(g, fields, object);
+          g.line("break;");
+        }
+        g.line("}");
+      }
+    }
+    return object;
+  }
+  const i = parts.findIndex((part) => !("name" in part));
+  const matched = parts[i] as Cases;
   return matched.cases
-    .map((_, j) =>
-      j < last ? `${matched.branch} === ${j} ? ${of(j)} : ` : of(j),
-    )
+    .map((fields, j) => {
+      const value = objectOf(g, [
+        ...parts.slice(0, i),
+        ...fields,
+        ...parts.slice(i + 1),
+      ]);
+      return j < matched.cases.length - 1
+        ? `${matched.branch} === ${j} ? ${value} : `
+        : value;
+    })
     .join("");
 }

@@ -60,3 +60,4 @@ export {
 } from "./bin.ts";
 export { custom, type CustomOptions, type DecodeResult } from "./custom.ts";
 export { decodeStream } from "./stream.ts";
+export { bits, type BitWidth } from "./bits.ts";

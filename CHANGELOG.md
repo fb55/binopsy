@@ -2,7 +2,9 @@
 
 ## Unreleased
 
-Unused match support is now removed by bundlers, including the code for merging match cases into parsers.
+Unused match and bit-field support is now removed by bundlers, including the code for merging match cases into parsers.
+Bit fields are codecs: replace `.bits(name, width)` with `.field(name, bits(width))`.
+`bits` is only supported as a direct parser field; standalone use or wrapping it (e.g. in `array`) throws when compiled. Consecutive fields retain their byte sharing, bit order, and merge behavior.
 
 binopsy is rewritten in TypeScript, around codecs: values that decode and encode, compiled to specialized JavaScript functions.
 Parsers are defined as before, field by field, but each method returns a new parser, and every parser is a codec.
@@ -17,8 +19,8 @@ Formats keep their bytes with the rewrites below (except where noted), but not t
 | Field methods change the parser                                              | Field methods return a new parser                                                                                |
 | `.uint8("a")`, `.int16le("a")`, `.floatbe("a")`, `.doublele("a")`            | `.u8("a")`, `.i16le("a")`, `.f32be("a")`, `.f64le("a")`                                                          |
 | `.endianess("little").uint16("a")`                                           | `.u16le("a")` (no default byte order)                                                                            |
-| `.bit3("a").bit5("b")`                                                       | `.bits("a", 3).bits("b", 5)`; numbers after bit fields start at the next byte, as before                         |
-| `.endianess("little").bit3("a").bit2("b")`                                   | `.bits("b", 2).bits("a", 3)`: the fields of each run in reverse order (the padding stays last)                   |
+| `.bit3("a").bit5("b")`                                                       | `.field("a", bits(3)).field("b", bits(5))`; numbers after bit fields start at the next byte, as before           |
+| `.endianess("little").bit3("a").bit2("b")`                                   | `.field("b", bits(2)).field("a", bits(3))`: the fields of each run in reverse order (the padding stays last)     |
 | Bit fields of nested parsers sharing bytes with the parent's                 | One run of bit fields, and `map` to the nested object (nested parsers start at a byte)                           |
 | `.string("s", { length: 4 })`                                                | `.field("s", string(4))`; encoding needs text of 4 bytes, unless it has a terminator or padding                  |
 | `.string("s", { length: 4, stripNull: true })`                               | `string(4, { padRight: 0 })` (trailing zeros are removed)                                                        |

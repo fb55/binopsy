@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   array,
   bin,
+  bits,
   bytes,
   literal,
   map,
@@ -31,7 +32,7 @@ describe("Decoding errors", () => {
     "are located in bit fields sharing bytes, %s first",
     (bitOrder) =>
       decodeFails(
-        bin({ bitOrder }).u8("head").bits("a", 4).bits("b", 12),
+        bin({ bitOrder }).u8("head").field("a", bits(4)).field("b", bits(12)),
         "09 01",
         { code: "end-of-input", path: ["b"], offset: 1 },
       ),
@@ -46,7 +47,7 @@ describe("Decoding errors", () => {
     ],
     [
       "are located in bit fields",
-      bin().u8("x").bits("a", 4).bits("b", 4).bits("c", 8),
+      bin().u8("x").field("a", bits(4)).field("b", bits(4)).field("c", bits(8)),
       "09 01",
       { code: "end-of-input", path: ["c"], offset: 2 },
     ],

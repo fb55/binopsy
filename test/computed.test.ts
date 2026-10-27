@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   array,
   bin,
+  bits,
   bytes,
   lazy,
   literal,
@@ -159,7 +160,11 @@ describe("Computed fields", () => {
   ] as const)("supply %s common to merged cases", (_, tag) => {
     const parser = bin()
       .u8("tag")
-      .merge(match("tag").case(1, bin().u8("n")).case(2, bin().bits("n", 8)))
+      .merge(
+        match("tag")
+          .case(1, bin().u8("n"))
+          .case(2, bin().field("n", bits(8))),
+      )
       .computed("n", () => 7);
     expect(parser.encode(Object.freeze({ tag }))).toStrictEqual(
       Uint8Array.of(tag, 7),
