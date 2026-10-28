@@ -39,6 +39,24 @@ describe("Sizes", () => {
     expect(converted.sizeOf({ x: 1, data: Uint8Array.of(1) })).toBe(3);
   });
 
+  it("compute the tags of matches of fixed sizes", () => {
+    const merged = bin()
+      .u8("tag")
+      .merge(match("tag").case(1, bin().u8("n")).case(2, bin().u8("n")))
+      .field("data", bytes("n"))
+      .computed("tag", () => 1);
+    expect(merged.sizeOf({ n: 1, data: Uint8Array.of(0) })).toBe(3);
+    const filled = bin()
+      .u8("tag")
+      .field(
+        "magic",
+        match("tag").case(1, literal(u8, 5)).case(2, literal(u8, 6)),
+      )
+      .field("s", string(u8))
+      .computed("tag", () => 1);
+    expect(filled.sizeOf({ s: "ab" })).toBe(5);
+  });
+
   it("skip the checks of encoding, and items of fixed sizes", () => {
     let calls = 0;
     const count =

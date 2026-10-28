@@ -840,19 +840,25 @@ export class Parser extends Codec<Obj> {
 
   /**
    * @returns The fields that sizes of values depend on: those of variable
-   *   sizes, and those their codecs read.
+   *   sizes, and those their codecs read. Merged groups and filled defaults
+   *   are evaluated even at fixed sizes, so their reads count too (a match
+   *   reads its tag).
    */
   private sizedBy(): Set<Reads[number]> {
     const fields = new Set<Reads[number]>();
     for (const entry of this.entries) {
       if (
         entry.kind === "pad" ||
-        (entry.kind === "field" && entry.codec.packing) ||
-        Number.isFinite(entry.codec.size)
+        (entry.kind === "field" && entry.codec.packing)
       ) {
         continue;
       }
-      for (const name of [...names(entry), ...entry.codec.reads]) {
+      const fixed = Number.isFinite(entry.codec.size);
+      if (fixed && entry.kind === "field" && !entry.codec.fills()) continue;
+      for (const name of [
+        ...(fixed ? [] : names(entry)),
+        ...entry.codec.reads,
+      ]) {
         fields.add(name);
       }
     }
