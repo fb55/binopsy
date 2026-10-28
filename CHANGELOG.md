@@ -2,20 +2,11 @@
 
 ## Unreleased
 
-`enumOf(codec, table, policy?)` names numeric wire values or checks membership in TypeScript enums and const objects. Unknown raw values can be rejected (`enumOf.reject`), kept (`enumOf.keep`), or decoded as a declared fallback passed directly as the third argument. A policy is required unless a small raw domain is completely covered. Static coverage proofs are limited to `bits(1)` through `bits(5)` (at most 32 values), using a complete tuple, numeric-key object, or TypeScript enum/const object's member values. Larger codecs, including `u8` and `i8`, and dynamic tables require an explicit policy in TypeScript. Runtime still recognizes complete domains through eight bits and checks integer bounds at definition time. Tables are snapshotted and validated when defined; unknown data reports its field and offset, including under `pick`.
+binopsy is rewritten in TypeScript. Formats are still described field by field, but everything else is new: a parser is a codec that both decodes and encodes, its values are typed from its fields, and it compiles to JavaScript specialized to its format.
 
-Numeric enum members work as `match` cases, keeping their enum types.
+None of the API of 0.0.0, the last published version, remains; it followed binary-parser's. The table below maps it to the new API, and the [README](README.md) documents all of it. Formats rewritten this way keep their bytes, except where noted, but not the quirks of 0.0.0, such as returning partial values for truncated input.
 
-Bundlers leave out the code of matches and bit fields that a format does not use.
-Bit fields are codecs: a bit field is `.field(name, bits(width))`.
-`bits` and its `enumOf`, `map`, `literal`, and `refine` wrappers pack together as direct parser fields. Standalone use and array items are rejected by the types and throw when compiled from JavaScript. Consecutive fields retain their byte sharing, bit order, and merge behavior.
-
-binopsy is rewritten in TypeScript, around codecs: values that decode and encode, compiled to specialized JavaScript functions.
-Parsers are defined as before, field by field, but each method returns a new parser, and every parser is a codec.
-Changes are relative to the last published version, 0.0.0, whose API followed binary-parser's; all of it changed.
-Formats keep their bytes with the rewrites below (except where noted), but not the quirks of 0.0.0 (such as returning partial values for truncated input).
-
-### Migration
+### Migrating from 0.0.0
 
 | 0.0.0                                                                        | Now                                                                                                              |
 | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
@@ -54,9 +45,18 @@ Formats keep their bytes with the rewrites below (except where noted), but not t
 | `compile()`, `getCode()`                                                     | Not needed: codecs compile themselves                                                                            |
 | Functions of the parent object (`function () { return this.n }`)             | Functions of the earlier fields: `(o) => o.n`                                                                    |
 
-### Additions
+Also watch for:
+
+- The bit layout of `.endianess("little")` is not the `lsb` order: reverse the fields of each run of bit fields, and keep the padding last.
+- Terminators of `utf16le` strings are 16-bit units (0.0.0 looked for a zero byte).
+- Arrays mapped to objects by a key must decide what duplicate keys and the order of keys become.
+- Assertions on other fields of the object (`this` in 0.0.0) become a `refine` of the whole parser.
+- State set by the constructor of `.create(Class)` needs a `map` or a `custom` codec.
+
+### New
 
 - Types: the decoded and encoded values are inferred (`Output<typeof parser>`, `Input<typeof parser>`); lengths, tags and functions are checked against the fields before them, and editors complete the names of fields.
+- `enumOf(codec, table, policy?)` decodes numbers as names, TypeScript enum members or values of const objects. Unknown numbers are rejected (`enumOf.reject`), kept (`enumOf.keep`), or decoded as a fallback name or member given as the third argument; the policy may be left out when the table names every value of a `bits(1)` to `bits(5)` field. `match` cases may be numeric enum members.
 - `parser.pick(...fields)` decodes some fields and steps over the others; `Reader` decodes consecutive values.
 - `codec.sizeOf(value)` computes the size of a value without encoding it (`custom` codecs are encoded, unless they have a `size`).
 - `trace(codec, bytes)` returns where each field of a value is, with its value.
@@ -68,18 +68,11 @@ Formats keep their bytes with the rewrites below (except where noted), but not t
 - 24-bit integers, 64-bit integers as `bigint`, and bit fields of up to 53 bits (#12).
 - Errors give the path of the field (e.g. `items[3].name`) and the offset.
 - Streams decode values spanning chunks without starting over at each chunk, work with any async iterable, such as Node.js and web streams, and close their source when stopped.
-- binopsy works in browsers: it uses `Uint8Array`s and `DataView`s instead of `Buffer`s.
-
-### More to know when migrating
-
-- The bit layout of `.endianess("little")` is not the `lsb` order: reverse the fields of each run of bit fields, and keep the padding last.
-- Terminators of `utf16le` strings are 16-bit units (0.0.0 looked for a zero byte).
-- Arrays mapped to objects by a key must decide what duplicate keys and the order of keys become.
-- Assertions on other fields of the object (`this` in 0.0.0) become a `refine` of the whole parser.
-- State set by the constructor of `.create(Class)` needs a `map` or a `custom` codec.
+- binopsy works in browsers: it uses `Uint8Array`s and `DataView`s instead of `Buffer`s. Bundlers leave out the code of matches and bit fields when a format does not use them.
 
 ### Behaviour to know
 
+- Bit fields (`bits(width)`, and `enumOf`, `map`, `literal` or `refine` of one) are fields of parsers, and consecutive ones share bytes. They cannot be array items or standalone codecs: the types reject this, and it throws when compiled.
 - `codec.size` is `NaN` when values vary in size, or (for `lazy`) when it is not known yet.
 - Functions given to codecs must have no side effects: a value may be decoded more than once (a stream decodes again a value that did not fit in its chunk, and calls `custom` decoders again with more bytes).
 - Streamed values must take at least one byte; errors of the source are passed on as they are.
