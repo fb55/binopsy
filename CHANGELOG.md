@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.0.0
 
 binopsy is rewritten in TypeScript. Formats are still described field by field, but everything else is new: a parser is a codec that both decodes and encodes, its values are typed from its fields, and it compiles to JavaScript specialized to its format.
 
