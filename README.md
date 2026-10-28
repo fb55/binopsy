@@ -23,6 +23,8 @@ const player = Player.decode(input);
 Player.encode(player); // The bytes again
 ```
 
+Numbers are named by type, size in bits and byte order: `u8` is an unsigned 8-bit integer (one byte), `u16le` an unsigned 16-bit integer stored little-endian, `i32be` a signed 32-bit integer stored big-endian, and `f64le` a 64-bit float. `.u8("count")` adds a `u8` field named `count`.
+
 Lengths, counts and tags name fields before them, and TypeScript checks the names where they are written:
 
 ```ts
@@ -41,13 +43,6 @@ bin().field("name", string(u8)).field("ratings", array(u16le, "name"));
 - **Errors that point at the byte.** A decoding error names the field that failed, with its path and byte offset; `trace` maps every field to its bytes.
 
 binopsy is an ES module without dependencies, with TypeScript types. It works on `Uint8Array`s (Node.js `Buffer`s are ones), in Node.js, Deno and browsers.
-
-Other libraries fit better for some needs:
-
-- Formats that point to offsets elsewhere in the file, such as fonts: [restructure](https://github.com/foliojs/restructure) and [Kaitai Struct](https://kaitai.io) have pointers.
-- Runtimes that forbid generating code, such as pages whose Content Security Policy blocks `eval`, Chrome extensions and Vercel Edge Functions: [typed-binary](https://github.com/iwoplaza/typed-binary) and [micro-packed](https://github.com/paulmillr/micro-packed) interpret their formats.
-- Small bundles: for a record of numbers, strings and arrays, typed-binary and restructure add 2 to 3 kB (minified and gzipped), binopsy about 10 kB.
-- Formats you design yourself, to share with other languages: [Protocol Buffers](https://protobuf.dev) and [FlatBuffers](https://flatbuffers.dev) generate code for each.
 
 ## Use cases
 
@@ -106,7 +101,7 @@ const { width, height } = Header.decode(png.chunks[0].data);
 ```
 
 - `literal(codec, value)` is a fixed value: decoding fails on any other, and encoding writes it, so it may be omitted. Values are numbers, strings, bigints or booleans that the codec stores exactly (not `0.1` in an `f32le`).
-- Numbers are little (`le`) or big (`be`) endian, except `u8` and `i8`. 64-bit integers (`u64be`, `i64le`, …) are `bigint`s. Each number codec has a parser method: `.u32be("length")` is `.field("length", u32be)`.
+- 64-bit integers (`u64be`, `i64le`, …) are `bigint`s. Each number codec has a parser method: `.u32be("length")` is `.field("length", u32be)`.
 - A length is a number, the name of an earlier field (`bytes("length")`), a function of the earlier fields, or a codec of a count read just before the value (`string(u8)`). See [lengths](#lengths).
 - `array(item, { until })` reads up to the first item for which `until` is true, and includes it.
 - `bytes` values view the input: `new Uint8Array(bytes)` copies one.
@@ -128,7 +123,7 @@ const Header = bin()
     "checksum", // Since version 2
     when((header) => header.version >= 2, u32le),
   )
-  .field("comment", optional(u8, string(u8))); // A flag byte, then the comment if it is not 0
+  .field("comment", optional(u8, string(u8))); // A flag byte; if not 0, a length byte and the text
 // { magic: "DATA"; version: number; count: number; checksum: number | null; comment: string | null }
 ```
 
@@ -502,27 +497,27 @@ Field names are unique: adding a name twice throws when the parser is defined (T
 
 ### Codecs
 
-| Codec                                             | Values                                                                                                                  |
-| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `u8`, `i8`, `u16le`, `i32be`, `f32le`, `f64be`, … | Integers of 8, 16, 24 and 32 bits and floats, little (`le`) or big (`be`) endian (`f32` rounds numbers to 32 bits)      |
-| `u64le`, `i64be`, …                               | 64-bit integers, as `bigint`                                                                                            |
-| `bits(width)`                                     | Numbers of 1 to 53 bits, as direct parser fields (consecutive bit fields share bytes)                                   |
-| `enumOf(codec, table, policy?)`                   | Named raw values or enum members, with rejection, preservation, or a declared fallback for unknown values               |
-| `bytes(length)`                                   | `Uint8Array`s, viewing the input (`new Uint8Array(b)` copies them)                                                      |
-| `string(length, options?)`                        | Strings stored in `length` bytes (see [strings](#strings))                                                              |
-| `string({ terminator, max?, encoding? })`         | Strings ending with a terminator, of at most `max` bytes                                                                |
-| `array(item, length)`                             | Arrays of `length` items                                                                                                |
-| `array(item, { until })`                          | Arrays up to the first item for which `until(item)` is true (included)                                                  |
-| `sized(length, codec)`                            | A value in a region of `length` bytes: it may not read past them, and they are padded with zeros                        |
-| `literal(codec, value)`                           | A fixed value (a number, string, bigint or boolean), checked when decoding and written when encoding                    |
-| `refine(codec, test, message?)`                   | Values passing `test`, when decoding and encoding (a type guard narrows their type)                                     |
-| `map(codec, { decode, encode? })`                 | Values converted both ways; without `encode`, only when decoding                                                        |
-| `optional(flag, codec)`                           | `null`, or a value after a non-zero `flag` (e.g. `u8`; encoding writes 0 or 1)                                          |
-| `when(condition, codec)`                          | `null`, or a value if `condition` holds: an earlier field is truthy, or a function of the earlier fields returns `true` |
-| `match(tag).case(value, codec)…`                  | One of several codecs, picked by a tag (`.otherwise(codec)` for other values)                                           |
-| `lazy(() => codec)`                               | A codec defined later, for formats that contain themselves                                                              |
-| `custom({ decode, encode?, size? })`              | A codec of functions of your own                                                                                        |
-| `fail(message)`                                   | Nothing: decoding and encoding fail (e.g. for parts that are not supported)                                             |
+| Codec                                             | Values                                                                                                                                                   |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `u8`, `i8`, `u16le`, `i32be`, `f32le`, `f64be`, … | Unsigned (`u`) and signed (`i`) integers of 8, 16, 24 and 32 bits and floats (`f`), little (`le`) or big (`be`) endian (`f32` rounds numbers to 32 bits) |
+| `u64le`, `i64be`, …                               | 64-bit integers, as `bigint`                                                                                                                             |
+| `bits(width)`                                     | Numbers of 1 to 53 bits, as direct parser fields (consecutive bit fields share bytes)                                                                    |
+| `enumOf(codec, table, policy?)`                   | Named raw values or enum members, with rejection, preservation, or a declared fallback for unknown values                                                |
+| `bytes(length)`                                   | `Uint8Array`s, viewing the input (`new Uint8Array(b)` copies them)                                                                                       |
+| `string(length, options?)`                        | Strings stored in `length` bytes (see [strings](#strings))                                                                                               |
+| `string({ terminator, max?, encoding? })`         | Strings ending with a terminator, of at most `max` bytes                                                                                                 |
+| `array(item, length)`                             | Arrays of `length` items                                                                                                                                 |
+| `array(item, { until })`                          | Arrays up to the first item for which `until(item)` is true (included)                                                                                   |
+| `sized(length, codec)`                            | A value in a region of `length` bytes: it may not read past them, and they are padded with zeros                                                         |
+| `literal(codec, value)`                           | A fixed value (a number, string, bigint or boolean), checked when decoding and written when encoding                                                     |
+| `refine(codec, test, message?)`                   | Values passing `test`, when decoding and encoding (a type guard narrows their type)                                                                      |
+| `map(codec, { decode, encode? })`                 | Values converted both ways; without `encode`, only when decoding                                                                                         |
+| `optional(flag, codec)`                           | `null`, or a value after a non-zero `flag` (e.g. `u8`; encoding writes 0 or 1)                                                                           |
+| `when(condition, codec)`                          | `null`, or a value if `condition` holds: an earlier field is truthy, or a function of the earlier fields returns `true`                                  |
+| `match(tag).case(value, codec)…`                  | One of several codecs, picked by a tag (`.otherwise(codec)` for other values)                                                                            |
+| `lazy(() => codec)`                               | A codec defined later, for formats that contain themselves                                                                                               |
+| `custom({ decode, encode?, size? })`              | A codec of functions of your own                                                                                                                         |
+| `fail(message)`                                   | Nothing: decoding and encoding fail (e.g. for parts that are not supported)                                                                              |
 
 Every codec has `decode`, `encode`, `encodeInto` and `sizeOf`, and `size`: the size of every value in bytes, or `NaN` if it varies (and always for `lazy`).
 
