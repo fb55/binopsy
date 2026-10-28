@@ -1,0 +1,24 @@
+CHANGELOG.md
+  s_9822029f13e609::t_104fcda18c842a 71,75
+  s_9822029f13e609::t_717e069a9ecd91 7,48
+  s_9822029f13e609::t_05a6e8f54e4fe6 50-56
+  s_9822029f13e609::t_e543993c3b3fdf 59
+  s_9822029f13e609::t_a1fa52b9f0a7be 5,9
+  s_9822029f13e609::t_0a770c81220fd6 49
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2a98683f46f92f7648698ca88086e33a2e9e42eb",
+  "prompts": {},
+  "sessions": {
+    "s_9822029f13e609": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8444603f-d257-481a-a71b-1dce68106d54",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Felix Boehm <188768+fb55@users.noreply.github.com>"
+    }
+  }
+}
