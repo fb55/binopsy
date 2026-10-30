@@ -1,0 +1,23 @@
+CHANGELOG.md
+  s_9822029f13e609::t_04dde13d2824b0 3
+package-lock.json
+  s_9822029f13e609::t_21bb16923da97f 3,9
+package.json
+  s_9822029f13e609::t_c819ca3b9a0711 3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "20b2d51a1108a60ba6dbf7aac38334e31b3c965b",
+  "prompts": {},
+  "sessions": {
+    "s_9822029f13e609": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8444603f-d257-481a-a71b-1dce68106d54",
+        "model": "unknown"
+      },
+      "human_author": "Felix Boehm <188768+fb55@users.noreply.github.com>"
+    }
+  }
+}
