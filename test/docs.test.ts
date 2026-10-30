@@ -1,4 +1,11 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -99,14 +106,13 @@ describe("Examples", () => {
     for (const [actual, shown] of outputs) expect(actual).toStrictEqual(shown);
   });
 
+  const example = fileURLToPath(new URL("../examples/tar.ts", import.meta.url));
+
   it("pack a directory into a tar archive with a valid checksum, and list it", () => {
     const dir = mkdtempSync(join(tmpdir(), "binopsy-tar-"));
     try {
       const file = join(dir, "file.txt");
       const archive = join(dir, "archive.tar");
-      const example = fileURLToPath(
-        new URL("../examples/tar.ts", import.meta.url),
-      );
       writeFileSync(file, "hello");
       writeFileSync(archive, ""); // From before: left out of the archive
       node(example, "pack", archive, dir);
@@ -123,6 +129,23 @@ describe("Examples", () => {
       const listing = node(example, "list", archive);
       expect(listing).toMatch(/0 5 .*file\.txt/u);
       expect(listing).not.toMatch(/archive\.tar/u);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("archive links as links, and list names with control characters escaped", () => {
+    const dir = mkdtempSync(join(tmpdir(), "binopsy-tar-"));
+    try {
+      const tree = join(dir, "tree");
+      const archive = join(dir, "archive.tar");
+      mkdirSync(tree);
+      symlinkSync(".", join(tree, "loop")); // Followed, it would never end
+      writeFileSync(join(tree, "a\u001B[2Kb\nc"), "");
+      node(example, "pack", archive, tree);
+      const listing = node(example, "list", archive);
+      expect(listing).toMatch(/^2 0 .*\/loop$/mu);
+      expect(listing).toContain(String.raw`a\u001b[2Kb\u000ac`);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
