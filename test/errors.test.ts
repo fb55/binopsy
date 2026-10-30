@@ -6,6 +6,7 @@ import {
   bits,
   bytes,
   DecodeError,
+  EncodeError,
   lazy,
   literal,
   map,
@@ -222,6 +223,8 @@ describe("Decoding errors", () => {
       thrown(() =>
         Tree.encode({ ...leaf, kids: [{ ...leaf, kids: 7 }] } as never),
       ).path,
+      new EncodeError("bad").path,
+      thrown(() => u8.encodeInto(1, new Uint8Array(0))).path,
     ];
     for (const path of paths) expect(Object.isFrozen(path)).toBe(true);
   });

@@ -124,7 +124,7 @@ export class EncodeError extends Error {
   /** The failure, without its location. */
   readonly detail: string;
   /** The field names and array indexes of the value that failed. */
-  readonly path: Path = [];
+  readonly path: Path = Object.freeze([]);
 
   /**
    * An encoding error (binopsy adds the path of the field that failed).
