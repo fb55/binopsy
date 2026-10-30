@@ -5,6 +5,7 @@ import {
   bin,
   bits,
   bytes,
+  DecodeError,
   lazy,
   literal,
   map,
@@ -195,6 +196,15 @@ describe("Decoding errors", () => {
       { message: /in `kids\[0\]\.kids\[1\]\["a b"\]` at offset 6$/u },
     ],
   ])("%s", (_, codec, wire, failure) => decodeFails(codec, wire, failure));
+
+  it("are located at the path they are given, also when it changes later", () => {
+    const path = ["first"];
+    const first = new DecodeError("invalid", "bad", 0, path);
+    path[0] = "second";
+    const second = new DecodeError("invalid", "bad", 0, path);
+    expect(first.message).toBe("bad in `first` at offset 0");
+    expect(second.message).toBe("bad in `second` at offset 0");
+  });
 });
 
 describe("Encoding errors", () => {

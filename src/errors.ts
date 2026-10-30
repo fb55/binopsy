@@ -6,8 +6,9 @@ export const MORE = Symbol("more");
 
 const identifier = /^[A-Za-z_$][\w$]*$/u;
 
-// Paths as written, by path: an error rethrown by each level of a deep value
-// extends the text of the one below instead of writing it all again.
+// The text of the paths that errors own (not of arrays given to them, which
+// may change): an error rethrown by each level of a deep value extends the
+// text of the one below instead of writing it all again.
 const written = new WeakMap<Path, string>();
 
 /**
@@ -15,9 +16,9 @@ const written = new WeakMap<Path, string>();
  * @returns The path as written in code, e.g. `items[1].name` or `["a b"]`.
  */
 function where(path: Path): string {
-  let text = written.get(path);
-  if (text === undefined) {
-    text = path
+  return (
+    written.get(path) ??
+    path
       .map((p, i) =>
         typeof p === "number"
           ? `[${p}]`
@@ -27,10 +28,8 @@ function where(path: Path): string {
               : p
             : `[${JSON.stringify(p)}]`,
       )
-      .join("");
-    written.set(path, text);
-  }
-  return text;
+      .join("")
+  );
 }
 
 /**
@@ -49,12 +48,12 @@ function nested(outer: Path, inner: Path): Path {
 
 /**
  * @param detail The failure, without its location.
- * @param path The field names and array indexes of the value that failed.
+ * @param path The path of the value that failed, as written.
  * @param offset The offset of the value that failed (none when encoding).
  * @returns The detail, followed by the path (if any) and the offset (if any).
  */
-function located(detail: string, path: Path, offset?: number): string {
-  const at = path.length > 0 ? ` in \`${where(path)}\`` : "";
+function located(detail: string, path: string, offset?: number): string {
+  const at = path ? ` in \`${path}\`` : "";
   return offset === undefined
     ? `${detail}${at}`
     : `${detail}${at} at offset ${offset}`;
@@ -104,12 +103,13 @@ export class DecodeError extends Error {
     path: Path = [],
     cause?: unknown,
   ) {
-    super(located(detail, path, offset), { cause });
+    const text = where(path);
+    super(located(detail, text, offset), { cause });
     this.code = code;
     this.detail = detail;
     this.offset = offset;
     this.path = [...path];
-    written.set(this.path, where(path));
+    written.set(this.path, text);
   }
 }
 
@@ -183,6 +183,6 @@ export function encodingWithin(e: unknown, path: Path): EncodeError {
     own ? e.cause : e,
   ) as Mutable<EncodeError>;
   err.path = own ? nested(path, e.path) : [...path];
-  err.message = located(err.detail, err.path);
+  err.message = located(err.detail, where(err.path));
   return err;
 }

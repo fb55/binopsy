@@ -55,6 +55,7 @@ export interface CustomOptions<O, I = O> {
  *   decode(bytes, final) {
  *     let value = 0;
  *     for (let i = 0; i < bytes.length && i < 5; i++) {
+ *       if (i === 4 && bytes[i] > 0x0f) throw new Error("varint exceeds u32");
  *       value += (bytes[i] & 0x7f) * 2 ** (7 * i);
  *       if (bytes[i] < 0x80) return { value, bytesRead: i + 1 };
  *     }
