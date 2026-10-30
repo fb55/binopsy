@@ -310,7 +310,7 @@ while (!reader.done) {
 - Fields that a later length or tag names are read too (here `coverSize`). A length or condition given as a function may read any earlier field, so all the fields before it are decoded: name a field where you can.
 - `pick()` without names steps over whole values, e.g. to count them.
 - A picked parser only decodes (also in streams); it does not encode.
-- Records of a fixed size (`Entry.size` is a number) can be decoded one at a time where they are needed, rather than as an array of all of them: `Entry.decode(file, i * Entry.size)`.
+- Records of a fixed size can be decoded one at a time where they are needed, rather than as an array of all of them. With `const Score = bin().u32le("id").f64le("value")`, whose `size` is 12, `Score.decode(file, i * Score.size)` decodes the `i`-th.
 
 ## Write messages and files
 
