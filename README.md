@@ -586,7 +586,7 @@ A literal keeps its default (and may be omitted) through `sized` and `lazy`, but
 
 ### Decoding and encoding
 
-`codec.decode(bytes, offset?)` decodes a value at `offset`, ignoring the bytes after it. `new Reader(bytes, offset?)` reads consecutive values: `reader.read(codec)` returns one and moves `reader.offset` past it (if it fails, the offset stays), and `reader.done` tells whether all bytes were read.
+`codec.decode(bytes, offset?)` decodes a value at `offset`, ignoring the bytes after it. `codec.decodeExact(bytes, offset?)` decodes one that must end the bytes, as a file or message holding one value does: bytes after it fail with a `DecodeError` of code `"invalid"` at the first of them. `new Reader(bytes, offset?)` reads consecutive values: `reader.read(codec)` returns one and moves `reader.offset` past it (if it fails, the offset stays), and `reader.done` tells whether all bytes were read.
 
 `trace(codec, bytes, offset?)` decodes a value and returns where each field of its parsers is, to annotate or compare bytes: `{ path, start, end, value }` for every field, after the fields inside it (`["items", 0, "name"]`, then `["items"]`). Bit fields have the bytes of their run. With `pick`, fields stepped over have `value: undefined`, and arrays stepped over without visiting their items have no spans for them.
 

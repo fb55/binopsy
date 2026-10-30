@@ -43,6 +43,7 @@ describe("Parser methods", () => {
     type Decoded = Output<typeof Record>;
     type Encoded = Input<typeof Record>;
     expectTypeOf(Record.decode).returns.toEqualTypeOf<Decoded>();
+    expectTypeOf(Record.decodeExact).returns.toEqualTypeOf<Decoded>();
     expectTypeOf(Record.encode).parameter(0).toEqualTypeOf<Encoded>();
     expectTypeOf(Record.encodeInto).parameter(0).toEqualTypeOf<Encoded>();
     expectTypeOf(Record.sizeOf).parameter(0).toEqualTypeOf<Encoded>();
@@ -66,6 +67,8 @@ describe("Decoding on its own", () => {
   it("rejects codecs that read outer fields", () => {
     // @ts-expect-error `count` is an outer field.
     bytes("count").decode(new Uint8Array());
+    // @ts-expect-error `count` is an outer field.
+    bytes("count").decodeExact(new Uint8Array());
     const Dependent = bin<{ count: number }>().field("value", bytes("count"));
     // @ts-expect-error `count` is an outer field.
     Dependent.pick("value").decode(new Uint8Array());

@@ -239,6 +239,7 @@ export interface Struct<T, I = T, Ctx = unknown> extends Codec<T, I, Ctx> {
   // resolve every accumulated field at every step of a builder chain.
   readonly [types]: Codec<Pretty<T>, Pretty<I>, Ctx>[typeof types];
   decode: Codec<Pretty<T>, Pretty<I>, Ctx>["decode"];
+  decodeExact: Codec<Pretty<T>, Pretty<I>, Ctx>["decodeExact"];
   encode: Codec<Pretty<T>, Pretty<I>, Ctx>["encode"];
   encodeInto: Codec<Pretty<T>, Pretty<I>, Ctx>["encodeInto"];
   sizeOf: Codec<Pretty<T>, Pretty<I>, Ctx>["sizeOf"];

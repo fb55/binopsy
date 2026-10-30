@@ -9,7 +9,7 @@ import {
   type Reads,
   type Selection,
 } from "./compile.ts";
-import { EncodeError, type Path } from "./errors.ts";
+import { DecodeError, EncodeError, type Path } from "./errors.ts";
 
 /** Types only: the key of a codec's types (not a property at run time). */
 export declare const types: unique symbol;
@@ -144,9 +144,37 @@ export abstract class Codec<
    * @throws {RangeError} If `offset` is outside `bytes`.
    */
   decode(this: Standalone, bytes: Uint8Array, offset = 0): O {
-    const cur = cursor(bytes, offset, true);
     const codec = this as unknown as AnyCodec;
-    return (codec.#bufferDecoder ??= compile(codec, "buffer", "all"))(cur) as O;
+    return codec.#decodeAt(cursor(bytes, offset, true)) as O;
+  }
+
+  /**
+   * Decodes the value at `offset` of `bytes`, which must end with it: for
+   * files and messages that hold one value.
+   *
+   * @param bytes The input.
+   * @param offset Where the value starts (default 0).
+   * @returns The value.
+   * @throws {DecodeError} As `decode` does, and with the code `"invalid"` at
+   *   the first byte after the value if there are any.
+   * @throws {RangeError} If `offset` is outside `bytes`.
+   */
+  decodeExact(this: Standalone, bytes: Uint8Array, offset = 0): O {
+    const cur = cursor(bytes, offset, true);
+    const value = (this as unknown as AnyCodec).#decodeAt(cur);
+    const left = cur.end - cur.offset;
+    if (left > 0) {
+      throw new DecodeError(
+        "invalid",
+        `${left} ${left === 1 ? "byte" : "bytes"} after the value`,
+        cur.offset,
+      );
+    }
+    return value as O;
+  }
+
+  #decodeAt(cur: Cursor): unknown {
+    return (this.#bufferDecoder ??= compile(this, "buffer", "all"))(cur);
   }
 
   /**

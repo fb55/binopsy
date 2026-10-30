@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- `codec.decodeExact(bytes, offset?)` decodes a value that must end the bytes, failing at the first byte after it.
+
 ## 1.0.1
 
 - Arrays with a count read from the input, of items that vary in size, reserve no more places than the input has bytes: a few bytes no longer make decoding allocate hundreds of megabytes before it fails.
