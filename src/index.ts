@@ -4,6 +4,7 @@ export {
   type AnyCodec,
   type Codec,
   type Context,
+  type Decoder,
   type Input,
   type Output,
   type Span,

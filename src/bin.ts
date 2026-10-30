@@ -239,12 +239,19 @@ export interface Struct<T, I = T, Ctx = unknown> extends Codec<T, I, Ctx> {
   // resolve every accumulated field at every step of a builder chain.
   readonly [types]: Codec<Pretty<T>, Pretty<I>, Ctx>[typeof types];
   decode: Codec<Pretty<T>, Pretty<I>, Ctx>["decode"];
+  decodeExact: Codec<Pretty<T>, Pretty<I>, Ctx>["decodeExact"];
   encode: Codec<Pretty<T>, Pretty<I>, Ctx>["encode"];
   encodeInto: Codec<Pretty<T>, Pretty<I>, Ctx>["encodeInto"];
   sizeOf: Codec<Pretty<T>, Pretty<I>, Ctx>["sizeOf"];
 
   /** Types only: marks parsers. */
   readonly [structured]: true;
+  /**
+   * The names of the fields it decodes, in order, with those of every case
+   * of the matches merged into it: e.g. to pick those of some names that a
+   * parser has.
+   */
+  readonly fields: readonly (unknown extends T ? string : Keys<T>)[];
   /**
    * A decoder of only the named fields: it steps over the others without
    * decoding them (no strings, objects or `map` conversions), but still
@@ -619,6 +626,11 @@ export class Parser extends Codec<Obj> {
    */
   private get aligns(): boolean {
     return this.entries.some((entry) => entry.kind === "pad" && entry.align);
+  }
+
+  /** @returns The names of the fields it decodes, in order. */
+  get fields(): readonly string[] {
+    return this.names();
   }
 
   /**

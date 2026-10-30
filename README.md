@@ -104,7 +104,7 @@ const { width, height } = Header.decode(png.chunks[0].data);
 - 64-bit integers (`u64be`, `i64le`, …) are `bigint`s. Each number codec has a parser method: `.u32be("length")` is `.field("length", u32be)`.
 - A length is a number, the name of an earlier field (`bytes("length")`), a function of the earlier fields, or a codec of a count read just before the value (`string(u8)`). See [lengths](#lengths).
 - `array(item, { until })` reads up to the first item for which `until` is true, and includes it.
-- `bytes` values view the input: `new Uint8Array(bytes)` copies one.
+- `bytes` values view the input: `new Uint8Array(bytes)` copies one. From a `Buffer` they are `Buffer`s, except in streams, where a value across chunks views a copy of them.
 - `.skip(n)` steps over `n` reserved bytes, and `.align(n)` over those up to a multiple of `n` bytes from the start of the parser: a RIFF chunk, `bin().field("id", string(4)).u32le("size").field("data", bytes("size")).align(2)`, takes an even number of bytes. Encoding writes zeros.
 - `decode(bytes, offset)` decodes a value at an offset, such as an index whose offset the header gives. Bytes after the value are ignored.
 
@@ -160,7 +160,7 @@ function handle(message: Message) {
 
 - `match(tag)` picks a codec by the value of the earlier field `tag`. `.merge` adds the fields of the case's parser to the message.
 - `.field(name, match(…))` puts the case's value in a field instead: `bin().u8("type").field("value", match("type").case(1, i32le).case(2, string(u32le)))` decodes `{ type: 1; value: number } | { type: 2; value: string }`.
-- A tag without a case fails, with a `DecodeError` of code `"no-match"`. `.otherwise(codec)` takes all other values.
+- A tag without a case fails, with a `DecodeError` of code `"no-match"`. `.otherwise(codec)` takes all other values. Its tag keeps its whole type (TypeScript has no "a number but 1 or 2"), so comparing the tag does not rule it out: tell it apart by a field of the cases, as in `"name" in message`.
 - Case values are numbers, strings, bigints or booleans (`1` and `"1"` are different), each with one case.
 - The tag may be computed from the earlier fields, with their type annotated: `match((o: { kind: number }) => o.kind & 0xf)`.
 - A match is a codec: define it once, and use it in several parsers.
@@ -310,6 +310,7 @@ while (!reader.done) {
 - Fields that a later length or tag names are read too (here `coverSize`). A length or condition given as a function may read any earlier field, so all the fields before it are decoded: name a field where you can.
 - `pick()` without names steps over whole values, e.g. to count them.
 - A picked parser only decodes (also in streams); it does not encode.
+- Records of a fixed size can be decoded one at a time where they are needed, rather than as an array of all of them. With `const Score = bin().u32le("id").f64le("value")`, whose `size` is 12, `Score.decode(file, i * Score.size)` decodes the `i`-th.
 
 ## Write messages and files
 
@@ -364,7 +365,7 @@ const Tree: Codec<Tree> = bin()
 ```
 
 - `lazy(() => codec)` is a codec defined later, or the one being defined. It sees no fields around it: functions in it get only the fields of its own parsers.
-- TypeScript cannot infer the type of a value that refers to itself: annotate it, as `Codec<Tree>`.
+- TypeScript cannot infer the type of a value that refers to itself: annotate it, as `Codec<Tree>`, and `lazy`'s function needs no type of its own. A format that only decodes (through a `map` or `custom` without `encode`) is a `Decoder<Tree>`.
 
 ## Custom encodings, such as varints
 
@@ -414,6 +415,7 @@ Entry.encode({ key: "id", values: [1, 300] }); // Uint8Array [2, 105, 100, 2, 1,
 
 - `decode(bytes, final)` gets the bytes from the value on. It returns `{ value, bytesRead }`, or `undefined` if it needs more bytes and `final` is false (in a stream, more may follow).
 - It is then called again with all the bytes so far, so it must have no side effects, and should look at a bounded number of them: the varint looks at 5 at most. A search for a delimiter through a long value would start over with each chunk; `string({ terminator, max })` finds one in a single pass.
+- A `DecodeError` that `decode` throws keeps its code: `throw new DecodeError("invalid", "varint exceeds u32", 4)` reports invalid bytes, at an offset in the bytes it got. Other errors become `DecodeError`s of code `"error"`.
 - Given a number as `size`, `decode` gets exactly that many bytes, and `final` is true. A function of a value as `size` is only for `sizeOf`, which calls it rather than encoding the value. Without `encode`, the codec only decodes.
 - For a conversion of bytes that other codecs read, `map` is enough: [examples/tar.ts](examples/tar.ts) reads octal numbers with a `map` of `bytes`.
 
@@ -491,6 +493,7 @@ const Record = bin().u8("count").pipe(withValues);
 - `.pipe(f)` applies a function adding fields.
 - `.computed(name, f)` and `.computed({ … })` compute fields when encoding; they end the parser.
 - `.pick(...names)` is a decoder of only the named fields.
+- `.fields` lists the names of the fields it decodes, in order, with those of every case of merged matches: `P.pick(...P.fields.filter((name) => wanted.has(name)))` picks those of some names that `P` has.
 
 `bin({ bitOrder: "lsb" })` takes the bits of bit fields from the least significant one. `bin<{ length: number }>()` reads the field `length` of the parser it is merged into, or is a match case of.
 
@@ -518,7 +521,7 @@ Field names are unique: adding a name twice throws when the parser is defined (T
 | `match(tag).case(value, codec)…`                  | One of several codecs, picked by a tag (`.otherwise(codec)` for other values)                                                                            |
 | `lazy(() => codec)`                               | A codec defined later, for formats that contain themselves                                                                                               |
 | `custom({ decode, encode?, size? })`              | A codec of functions of your own                                                                                                                         |
-| `fail(message)`                                   | Nothing: decoding and encoding fail (e.g. for parts that are not supported)                                                                              |
+| `fail(message)`, `fail(error)`                    | Nothing: decoding and encoding fail (e.g. for parts that are not supported); an error of yours is their `cause`                                          |
 
 Every codec has `decode`, `encode`, `encodeInto` and `sizeOf`, and `size`: the size of every value in bytes, or `NaN` if it varies (and always for `lazy`).
 
@@ -584,7 +587,7 @@ A literal keeps its default (and may be omitted) through `sized` and `lazy`, but
 
 ### Decoding and encoding
 
-`codec.decode(bytes, offset?)` decodes a value at `offset`, ignoring the bytes after it. `new Reader(bytes, offset?)` reads consecutive values: `reader.read(codec)` returns one and moves `reader.offset` past it (if it fails, the offset stays), and `reader.done` tells whether all bytes were read.
+`codec.decode(bytes, offset?)` decodes a value at `offset`, ignoring the bytes after it. `codec.decodeExact(bytes, offset?)` decodes one that must end the bytes, as a file or message holding one value does: bytes after it fail with a `DecodeError` of code `"invalid"` at the first of them. `new Reader(bytes, offset?)` reads consecutive values: `reader.read(codec)` returns one and moves `reader.offset` past it (if it fails, the offset stays), and `reader.done` tells whether all bytes were read. Setting `reader.offset` moves the reader, to decode values in any order.
 
 `trace(codec, bytes, offset?)` decodes a value and returns where each field of its parsers is, to annotate or compare bytes: `{ path, start, end, value }` for every field, after the fields inside it (`["items", 0, "name"]`, then `["items"]`). Bit fields have the bytes of their run. With `pick`, fields stepped over have `value: undefined`, and arrays stepped over without visiting their items have no spans for them.
 
@@ -616,6 +619,7 @@ An `EncodeError` has a `path`, a `detail` and a `cause`, but no `code` or offset
 - `Codec<O, I>` is the type of codecs; `Bin<T, I>` that of parsers, and `Struct<T, I>` that of parsers adding no more fields (computing some, or picking some).
 - `Context<typeof codec>` is the type of the fields a codec reads around it. A codec reading such fields (e.g. `bytes("length")`) only decodes and encodes in a parser that has them: `decode`, `encode`, `sizeOf`, `trace`, `Reader` and streams take codecs that read none.
 - `AnyCodec` and `AnyBin` accept any codec and any parser, in generic functions.
+- `Decoder<O>` is `Codec<O, never>`: a codec that may only decode, which every codec of `O` that decodes on its own is (`Decoder<O, Ctx>` also takes those reading the fields `Ctx` around them). It types tables of parsers of different fields (`Record<number, Decoder<object>>`), and choices of codecs: functions that take a codec need it to have one type, so annotate `cond ? A : B` as `Decoder<Output<typeof A> | Output<typeof B>>` (`.merge` takes such choices as they are).
 - Options and parts: `BinOptions`, `BitWidth`, `StringOptions`, `TerminatedStringOptions`, `Encoding`, `Length`, `CustomOptions`, `DecodeResult` and `Path`.
 
 TypeScript may miss a misspelled option in a union of option objects (`cond ? { terminator: 0 } : { padRight: 0 }`); options are also checked when a codec is defined.

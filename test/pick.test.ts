@@ -13,6 +13,7 @@ import {
   string,
   u16le,
   u8,
+  type Input,
 } from "../src/index.ts";
 import {
   decodes,
@@ -51,6 +52,17 @@ describe("Picked fields", () => {
     });
     expect(reader.offset).toBe(input.length);
     expect(Record.pick().decode(input)).toStrictEqual({});
+  });
+
+  it("are those of the parser's fields that are named", () => {
+    const Merged = bin()
+      .u8("tag")
+      .merge(match("tag").case(1, bin().u8("a")).case(2, bin().u8("b")));
+    expect(Merged.fields).toStrictEqual(["tag", "a", "b"]);
+    const wanted = new Set(["b", "c"]);
+    const Picked = Merged.pick(...Merged.fields.filter((n) => wanted.has(n)));
+    expect(Picked.fields).toStrictEqual(["b"]);
+    expect(Picked.decode(hex("02 07"))).toStrictEqual({ b: 7 });
   });
 
   it("follow values of lengths from functions", () => {
@@ -202,13 +214,13 @@ describe("Picked groups of nested cases", () => {
     (bitOrder) => {
       const { full, outer } = groups(bitOrder);
 
-      it.each<[name: string, input: object]>([
+      it.each<[name: string, input: Input<typeof full>]>([
         ["a plain case", { ...fields, tag: 0, b: 31 }],
         ["a computing case", { ...fields, tag: 1 }],
         ["a nested computing case", { ...fields, tag: 2, subtag: 0 }],
         ["a nested plain case", { ...fields, tag: 2, subtag: 1, b: 31 }],
       ])("fill in defaults and keep picked fields, in %s", async (_, input) => {
-        const wire = full.encode(input as never);
+        const wire = full.encode(input);
         expect(full.decode(wire)).toStrictEqual({
           ...fields,
           b: 31,
