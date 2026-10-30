@@ -134,20 +134,24 @@ describe("Examples", () => {
     }
   });
 
-  it("archive links as links, and list names with control characters escaped", () => {
-    const dir = mkdtempSync(join(tmpdir(), "binopsy-tar-"));
-    try {
-      const tree = join(dir, "tree");
-      const archive = join(dir, "archive.tar");
-      mkdirSync(tree);
-      symlinkSync(".", join(tree, "loop")); // Followed, it would never end
-      writeFileSync(join(tree, "a\u001B[2Kb\nc"), "");
-      node(example, "pack", archive, tree);
-      const listing = node(example, "list", archive);
-      expect(listing).toMatch(/^2 0 .*\/loop$/mu);
-      expect(listing).toContain(String.raw`a\u001b[2Kb\u000ac`);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
+  // Windows forbids control characters in file names, and links need privileges there.
+  it.skipIf(process.platform === "win32")(
+    "archive links as links, and list names with control characters escaped",
+    () => {
+      const dir = mkdtempSync(join(tmpdir(), "binopsy-tar-"));
+      try {
+        const tree = join(dir, "tree");
+        const archive = join(dir, "archive.tar");
+        mkdirSync(tree);
+        symlinkSync(".", join(tree, "loop")); // Followed, it would never end
+        writeFileSync(join(tree, "a\u001B[2Kb\nc"), "");
+        node(example, "pack", archive, tree);
+        const listing = node(example, "list", archive);
+        expect(listing).toMatch(/^2 0 .*\/loop$/mu);
+        expect(listing).toContain(String.raw`a\u001b[2Kb\u000ac`);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    },
+  );
 });
