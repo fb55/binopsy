@@ -1,7 +1,8 @@
 /**
  * Reads and writes tar archives (ustar), as an example of binopsy:
  * strings of a fixed size ending with a zero, numbers converted from octal
- * digits, a length taken from a field, computed fields, and decoding a stream.
+ * digits, names of type flags, a length taken from a field, computed fields,
+ * and decoding a stream.
  *
  *   node examples/tar.ts pack <archive.tar> <paths…>
  *   node examples/tar.ts list <archive.tar>
@@ -10,10 +11,11 @@ import {
   createReadStream,
   createWriteStream,
   fstatSync,
+  lstatSync,
   openSync,
   readdirSync,
   readFileSync,
-  statSync,
+  readlinkSync,
   type Stats,
 } from "node:fs";
 import { join } from "node:path";
@@ -24,8 +26,10 @@ import {
   bin,
   bytes,
   decodeStream,
+  enumOf,
   map,
   string,
+  u8,
   type Codec,
   type Input,
 } from "../src/index.ts";
@@ -63,7 +67,15 @@ export const Entry = bin()
   .field("size", octal(12))
   .field("mtime", octal(12))
   .field("checksum", octal(8, "\0 "))
-  .field("type", string(1)) // "0": a file, "5": a directory
+  // The characters "0", "2" and "5"; others, such as "1" for hard links, stay numbers.
+  .field(
+    "type",
+    enumOf(
+      u8,
+      { 0x30: "file", 0x32: "symlink", 0x35: "directory" },
+      enumOf.keep,
+    ),
+  )
   .field("linkname", string(100, { terminator: 0 }))
   .field("magic", string(6, { terminator: 0 }))
   .field("version", string(2))
@@ -94,11 +106,13 @@ export function pack(entry: Omit<Input<typeof Entry>, "checksum">): Uint8Array {
 }
 
 function* entries(path: string, archive: Stats): Generator<Uint8Array> {
-  const stat = statSync(path);
+  // Links are archived as links, not followed.
+  const stat = lstatSync(path);
   if (stat.dev === archive.dev && stat.ino === archive.ino) return;
   const directory = stat.isDirectory();
-  if (!directory && !stat.isFile()) {
-    throw new Error(`${path} is neither a file nor a directory`);
+  const link = stat.isSymbolicLink();
+  if (!directory && !link && !stat.isFile()) {
+    throw new Error(`${path} is not a file, a directory or a link`);
   }
   yield pack({
     name: directory ? `${path}/` : path,
@@ -106,8 +120,8 @@ function* entries(path: string, archive: Stats): Generator<Uint8Array> {
     uid: stat.uid,
     gid: stat.gid,
     mtime: Math.floor(stat.mtimeMs / 1000),
-    type: directory ? "5" : "0",
-    linkname: "",
+    type: directory ? "directory" : link ? "symlink" : "file",
+    linkname: link ? readlinkSync(path) : "",
     magic: "ustar",
     version: "00",
     uname: "",
@@ -115,7 +129,7 @@ function* entries(path: string, archive: Stats): Generator<Uint8Array> {
     devmajor: 0,
     devminor: 0,
     prefix: "",
-    data: directory ? new Uint8Array(0) : readFileSync(path),
+    data: directory || link ? new Uint8Array(0) : readFileSync(path),
   });
   if (directory) {
     for (const name of readdirSync(path)) {
@@ -128,12 +142,27 @@ function* entries(path: string, archive: Stats): Generator<Uint8Array> {
  * The archive of `paths`.
  *
  * @param paths The files and directories to archive.
- * @param archive The file of the archive, which is left out (also through links).
+ * @param archive The file of the archive, which is left out (also through hard links).
  * @yields The entries of `paths`, then the two zero blocks that end an archive.
  */
 function* tarball(paths: string[], archive: Stats): Generator<Uint8Array> {
-  for (const path of paths) yield* entries(path, archive);
+  for (const path of paths) {
+    // As tar does, archive a link given with a trailing slash as a link.
+    yield* entries(path.replace(/(?<=[^/])\/+$/u, ""), archive);
+  }
   yield new Uint8Array(1024);
+}
+
+/**
+ * @param text Text from an archive.
+ * @returns The text with control characters escaped, so that printing it
+ *   cannot move the cursor or start new lines.
+ */
+function printable(text: string): string {
+  return text.replaceAll(
+    /\p{Cc}/gu,
+    (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`,
+  );
 }
 
 // When run, not imported.
@@ -148,10 +177,15 @@ if (import.meta.main) {
   } else if (command === "list") {
     for await (const entry of decodeStream(Entry, createReadStream(archive))) {
       if (entry.name) {
+        const { type } = entry;
         console.log(
-          entry.type,
+          printable(
+            typeof type === "number" ? String.fromCharCode(type) : type,
+          ),
           entry.size,
-          entry.prefix ? `${entry.prefix}/${entry.name}` : entry.name,
+          printable(
+            entry.prefix ? `${entry.prefix}/${entry.name}` : entry.name,
+          ),
         );
       }
     }

@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Arrays with a count read from the input, of items that vary in size, reserve no more places than the input has bytes: a few bytes no longer make decoding allocate hundreds of megabytes before it fails.
+- A failure deep in a recursive value no longer writes out its whole path again at each level it passes. The `path` of errors is frozen.
+
 ## 1.0.0
 
 binopsy is rewritten in TypeScript. Formats are still described field by field, but everything else is new: a parser is a codec that both decodes and encodes, its values are typed from its fields, and it compiles to JavaScript specialized to its format.

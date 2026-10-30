@@ -7,17 +7,22 @@
  */
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const out = join(tmpdir(), "binopsy-generated");
+declare module "vitest" {
+  export interface ProvidedContext {
+    generated: string;
+  }
+}
 
 if (import.meta.main) {
-  rmSync(out, { recursive: true, force: true });
-  mkdirSync(out, { recursive: true });
+  // A directory of our own: others cannot add files to it.
+  const out = mkdtempSync(join(tmpdir(), "binopsy-generated-"));
   const { startVitest } = await import("vitest/node");
   const tests = await startVitest([], {
+    provide: { generated: out },
     run: true,
     setupFiles: [import.meta.filename],
     typecheck: { enabled: false },
@@ -32,12 +37,19 @@ if (import.meta.main) {
     "-A no-unused-vars -A no-unassigned-vars -A no-unreachable -A require-yield",
     "-A unicorn/no-new-array",
   ].join(" ");
-  const lint = spawnSync("oxlint", [...rules.split(" "), out], {
+  // An explicit configuration: oxlint would otherwise look for one, and run
+  // it if it is JavaScript, in the directories above, such as the shared /tmp.
+  const config = join(out, "oxlintrc.json");
+  writeFileSync(config, "{}");
+  const lint = spawnSync("oxlint", ["-c", config, ...rules.split(" "), out], {
     cwd: out,
     stdio: "inherit",
   });
-  if (lint.status !== 0) process.exitCode = 1;
+  if (lint.status === 0) rmSync(out, { recursive: true });
+  else process.exitCode = 1;
 } else {
+  const { inject } = await import("vitest");
+  const out = inject("generated");
   // In a test worker: save the functions that codecs compile to.
   globalThis.Function = new Proxy(Function, {
     construct(target, args: string[]) {

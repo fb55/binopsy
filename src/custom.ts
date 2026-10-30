@@ -39,26 +39,29 @@ export interface CustomOptions<O, I = O> {
  *
  * `decode(bytes, final)` returns `{ value, bytesRead }`, or `undefined` if
  * it needs more bytes and `final` is false; without `encode`, the codec only
- * decodes. A `DecodeError` that `decode` throws keeps its code, and its
- * offset is moved from the bytes `decode` got to the input's. See the README
- * section on custom encodings.
+ * decodes. In a stream, `decode` is then called again with all the bytes so
+ * far, so it should look at a bounded number of them (for text up to a
+ * delimiter, `string({ terminator, max })` reads each byte once). A
+ * `DecodeError` that `decode` throws keeps its code, and its offset is moved
+ * from the bytes `decode` got to the input's. See the README section on
+ * custom encodings.
  *
  * @param options `decode`, and optionally `encode` and `size`.
  * @returns A codec of the values `decode` returns.
  * @throws {TypeError} If an option is unknown or invalid (when defined).
  * @example
- * // Text up to a line feed, which may arrive in a later chunk of a stream
- * const line = custom({
+ * // Variable-length integers (LEB128) of up to 32 bits, only decoded
+ * const varint = custom({
  *   decode(bytes, final) {
- *     const end = bytes.indexOf(10);
- *     if (end === -1) {
- *       if (final) throw new Error("no line feed");
- *       return undefined;
+ *     let value = 0;
+ *     for (let i = 0; i < bytes.length && i < 5; i++) {
+ *       if (i === 4 && bytes[i] > 0x0f) throw new Error("varint exceeds u32");
+ *       value += (bytes[i] & 0x7f) * 2 ** (7 * i);
+ *       if (bytes[i] < 0x80) return { value, bytesRead: i + 1 };
  *     }
- *     const value = new TextDecoder().decode(bytes.subarray(0, end));
- *     return { value, bytesRead: end + 1 };
+ *     if (!final && bytes.length < 5) return undefined;
+ *     throw new Error("invalid varint");
  *   },
- *   encode: (text: string) => new TextEncoder().encode(`${text}\n`),
  * });
  */
 export function custom<O, I = O>(options: CustomOptions<O, I>): Codec<O, I>;
