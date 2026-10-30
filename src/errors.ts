@@ -4,22 +4,47 @@ export type Path = readonly (string | number)[];
 /** Thrown by decoders reaching the end of input that is not final (no error: more input is needed). */
 export const MORE = Symbol("more");
 
+const identifier = /^[A-Za-z_$][\w$]*$/u;
+
+// Paths as written, by path: an error rethrown by each level of a deep value
+// extends the text of the one below instead of writing it all again.
+const written = new WeakMap<Path, string>();
+
 /**
  * @param path Field names and array indexes.
  * @returns The path as written in code, e.g. `items[1].name` or `["a b"]`.
  */
 function where(path: Path): string {
-  return path
-    .map((p, i) =>
-      typeof p === "number"
-        ? `[${p}]`
-        : /^[A-Za-z_$][\w$]*$/u.test(p)
-          ? i
-            ? `.${p}`
-            : p
-          : `[${JSON.stringify(p)}]`,
-    )
-    .join("");
+  let text = written.get(path);
+  if (text === undefined) {
+    text = path
+      .map((p, i) =>
+        typeof p === "number"
+          ? `[${p}]`
+          : identifier.test(p)
+            ? i
+              ? `.${p}`
+              : p
+            : `[${JSON.stringify(p)}]`,
+      )
+      .join("");
+    written.set(path, text);
+  }
+  return text;
+}
+
+/**
+ * @param outer The location of a value.
+ * @param inner A location within that value.
+ * @returns The joined path, with its text written from both.
+ */
+function nested(outer: Path, inner: Path): Path {
+  const path = [...outer, ...inner];
+  const [first] = inner;
+  const dot =
+    outer.length > 0 && typeof first === "string" && identifier.test(first);
+  written.set(path, `${where(outer)}${dot ? "." : ""}${where(inner)}`);
+  return path;
 }
 
 /**
@@ -84,6 +109,7 @@ export class DecodeError extends Error {
     this.detail = detail;
     this.offset = offset;
     this.path = [...path];
+    written.set(this.path, where(path));
   }
 }
 
@@ -138,7 +164,7 @@ export function within(
     e.code,
     e.detail,
     e.offset + shift,
-    [...path, ...e.path],
+    nested(path, e.path),
     e.cause,
   );
 }
@@ -156,7 +182,7 @@ export function encodingWithin(e: unknown, path: Path): EncodeError {
     own ? e.detail : messageOf(e),
     own ? e.cause : e,
   ) as Mutable<EncodeError>;
-  err.path = [...path, ...(own ? e.path : [])];
+  err.path = own ? nested(path, e.path) : [...path];
   err.message = located(err.detail, err.path);
   return err;
 }

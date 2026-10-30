@@ -5,6 +5,7 @@ import {
   bin,
   bits,
   bytes,
+  lazy,
   literal,
   map,
   refine,
@@ -12,6 +13,7 @@ import {
   string,
   u16le,
   u8,
+  type Codec,
 } from "../src/index.ts";
 import { decodeFails, type Failure, type Standalone } from "./helpers.ts";
 
@@ -22,6 +24,20 @@ const Shape = bin()
   .u16le("id")
   .field("center", bin().field("at", Point))
   .field("points", array(Point, u8));
+// Errors in it pass through a call for each level.
+interface Tree {
+  "a b": number;
+  kids: Tree[];
+}
+const Tree: Codec<Tree> = bin()
+  .u8("a b")
+  .field(
+    "kids",
+    array(
+      lazy(() => Tree),
+      u8,
+    ),
+  );
 const cause = new Error("bad");
 const fails = () => {
   throw cause;
@@ -172,6 +188,12 @@ describe("Decoding errors", () => {
       "02",
       { message: /expected 1, got 2 in `\["a b"\]\["c.d"\]` at offset 0/u },
     ],
+    [
+      "locate errors in recursive values",
+      Tree,
+      "01 01 01 02 01 00",
+      { message: /in `kids\[0\]\.kids\[1\]\["a b"\]` at offset 6$/u },
+    ],
   ])("%s", (_, codec, wire, failure) => decodeFails(codec, wire, failure));
 });
 
@@ -196,6 +218,20 @@ describe("Encoding errors", () => {
   ])("%s", (_, value, path) => {
     expect(() => Shape.encode(value)).toThrow(
       expect.objectContaining({ name: "EncodeError", path }),
+    );
+  });
+
+  it("are located in recursive values", () => {
+    const leaf = { "a b": 1, kids: [] };
+    const value = {
+      ...leaf,
+      kids: [{ ...leaf, kids: [leaf, { ...leaf, kids: 7 }] }],
+    };
+    expect(() => Tree.encode(value as never)).toThrow(
+      expect.objectContaining({
+        path: ["kids", 0, "kids", 1, "kids"],
+        message: "expected an array, got 7 in `kids[0].kids[1].kids`",
+      }),
     );
   });
 });
