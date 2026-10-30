@@ -1604,9 +1604,10 @@ class Fail extends Codec<never> {
  * are not supported.
  *
  * @param reason The detail of the errors (a `DecodeError` of code
- *   `"invalid"`, or an `EncodeError`), or an error of your own: it is then
- *   the `cause` of theirs, as errors that functions throw are (the
- *   `DecodeError` has the code `"error"`).
+ *   `"invalid"`, or an `EncodeError`), or an error of your own, thrown as
+ *   errors that functions throw are: it is the `cause` of a `DecodeError` of
+ *   code `"error"` or of an `EncodeError`, at the field (a `DecodeError` or
+ *   `EncodeError` keeps its own code, offset and cause).
  * @returns A codec of no values.
  * @example
  * match("compression")
