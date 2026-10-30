@@ -1,7 +1,8 @@
 /**
  * Reads and writes tar archives (ustar), as an example of binopsy:
  * strings of a fixed size ending with a zero, numbers converted from octal
- * digits, a length taken from a field, computed fields, and decoding a stream.
+ * digits, named type flags, a length taken from a field, computed fields, and
+ * decoding a stream.
  *
  *   node examples/tar.ts pack <archive.tar> <paths…>
  *   node examples/tar.ts list <archive.tar>
@@ -25,6 +26,7 @@ import {
   bin,
   bytes,
   decodeStream,
+  enumOf,
   map,
   string,
   type Codec,
@@ -55,6 +57,9 @@ function octal(length: number, end = "\0"): Codec<number> {
   });
 }
 
+/** The type flags of the entries that `pack` writes. */
+export const Type = { File: "0", Link: "2", Directory: "5" } as const;
+
 /** A header block (512 bytes), followed by the data, padded to whole blocks. */
 export const Entry = bin()
   .field("name", string(100, { terminator: 0 }))
@@ -64,7 +69,7 @@ export const Entry = bin()
   .field("size", octal(12))
   .field("mtime", octal(12))
   .field("checksum", octal(8, "\0 "))
-  .field("type", string(1)) // "0": a file, "2": a symbolic link, "5": a directory
+  .field("type", enumOf(string(1), Type, enumOf.keep)) // Other flags, such as "1" for hard links, are kept
   .field("linkname", string(100, { terminator: 0 }))
   .field("magic", string(6, { terminator: 0 }))
   .field("version", string(2))
@@ -109,7 +114,7 @@ function* entries(path: string, archive: Stats): Generator<Uint8Array> {
     uid: stat.uid,
     gid: stat.gid,
     mtime: Math.floor(stat.mtimeMs / 1000),
-    type: directory ? "5" : link ? "2" : "0",
+    type: directory ? Type.Directory : link ? Type.Link : Type.File,
     linkname: link ? readlinkSync(path) : "",
     magic: "ustar",
     version: "00",
