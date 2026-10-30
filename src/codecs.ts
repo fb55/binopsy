@@ -756,6 +756,20 @@ function writeFirst(g: Gen, value: string, count: Primitive | number): void {
   g.skip(plus(size));
 }
 
+/**
+ * @param g The generator of the function.
+ * @param n The count of items, or an expression of it.
+ * @param each The size of each item, or 0 if it varies.
+ * @returns The places to reserve for the items: a count read from the input,
+ *   of items not checked against it at once (of no or varying sizes),
+ *   reserves no more places than the input has bytes.
+ */
+function places(g: Gen, n: number | string, each: number): number | string {
+  return typeof n === "number" || each > 0
+    ? n
+    : `Math.min(${n}, end - (${g.at()}))`;
+}
+
 interface Until<T> {
   until: (item: T) => boolean;
 }
@@ -803,7 +817,7 @@ class List extends Codec<unknown[]> {
         return "";
       }
     }
-    const v = wanted ? g.let(`new Array(${n})`) : "";
+    const v = wanted ? g.let(`new Array(${places(g, n, each)})`) : "";
     if (wanted && item instanceof Primitive) {
       g.usesView ||= item.usesView;
       const start = item.usesView ? g.let(g.viewAt()) : undefined;

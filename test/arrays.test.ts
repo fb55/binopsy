@@ -93,6 +93,14 @@ describe("Arrays", () => {
       { rows: [[1, 2], []], names: ["a", ""] },
     ],
     [
+      "count items of no bytes beyond the input's size",
+      bin()
+        .u8("n")
+        .field("a", array(bytes("n"), u8)),
+      "00 03",
+      { n: 0, a: [new Uint8Array(), new Uint8Array(), new Uint8Array()] },
+    ],
+    [
       "take the rest of the input",
       bin().u8("n").field("rest", array(u16le, Infinity)),
       "01 0200 0300",

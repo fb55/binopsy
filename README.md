@@ -413,7 +413,7 @@ Entry.encode({ key: "id", values: [1, 300] }); // Uint8Array [2, 105, 100, 2, 1,
 ```
 
 - `decode(bytes, final)` gets the bytes from the value on. It returns `{ value, bytesRead }`, or `undefined` if it needs more bytes and `final` is false (in a stream, more may follow).
-- It is then called again with more bytes, so it must have no side effects.
+- It is then called again with all the bytes so far, so it must have no side effects, and should look at a bounded number of them: the varint looks at 5 at most. A search for a delimiter through a long value would start over with each chunk; `string({ terminator, max })` finds one in a single pass.
 - Given a number as `size`, `decode` gets exactly that many bytes, and `final` is true. A function of a value as `size` is only for `sizeOf`, which calls it rather than encoding the value. Without `encode`, the codec only decodes.
 - For a conversion of bytes that other codecs read, `map` is enough: [examples/tar.ts](examples/tar.ts) reads octal numbers with a `map` of `bytes`.
 
@@ -435,6 +435,7 @@ try {
 
 - `code` is `"end-of-input"` (the input ends inside a value), `"invalid"` (a value failed a check, e.g. of a literal, or reached past the end of its `sized` region), `"no-match"` (a tag without a case), or `"error"` (a function of yours threw; its error is the `cause`).
 - `refine(codec, test, message?)` adds a check of your own, when decoding and when encoding: `refine(u32be, (width) => width > 0, "width must be positive")`. A type guard as `test` narrows the type.
+- Arrays of items that can take no bytes, such as `bytes("size")` with a `size` of 0, decode as many items as their count says, whatever the size of the input: a count of 2^32 − 1 exhausts memory. Cap such counts with `refine`: `array(bytes("size"), refine(u32be, (n) => n <= 1024))`.
 - An `EncodeError` has the `path` too, but no offset.
 
 ## Parts shared by formats
