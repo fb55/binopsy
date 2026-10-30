@@ -1,8 +1,8 @@
 /**
  * Reads and writes tar archives (ustar), as an example of binopsy:
  * strings of a fixed size ending with a zero, numbers converted from octal
- * digits, named type flags, a length taken from a field, computed fields, and
- * decoding a stream.
+ * digits, names of type flags, a length taken from a field, computed fields,
+ * and decoding a stream.
  *
  *   node examples/tar.ts pack <archive.tar> <paths…>
  *   node examples/tar.ts list <archive.tar>
@@ -29,6 +29,7 @@ import {
   enumOf,
   map,
   string,
+  u8,
   type Codec,
   type Input,
 } from "../src/index.ts";
@@ -57,9 +58,6 @@ function octal(length: number, end = "\0"): Codec<number> {
   });
 }
 
-/** The type flags of the entries that `pack` writes. */
-export const Type = { File: "0", Link: "2", Directory: "5" } as const;
-
 /** A header block (512 bytes), followed by the data, padded to whole blocks. */
 export const Entry = bin()
   .field("name", string(100, { terminator: 0 }))
@@ -69,7 +67,15 @@ export const Entry = bin()
   .field("size", octal(12))
   .field("mtime", octal(12))
   .field("checksum", octal(8, "\0 "))
-  .field("type", enumOf(string(1), Type, enumOf.keep)) // Other flags, such as "1" for hard links, are kept
+  // The characters "0", "2" and "5"; others, such as "1" for hard links, stay numbers.
+  .field(
+    "type",
+    enumOf(
+      u8,
+      { 0x30: "file", 0x32: "symlink", 0x35: "directory" },
+      enumOf.keep,
+    ),
+  )
   .field("linkname", string(100, { terminator: 0 }))
   .field("magic", string(6, { terminator: 0 }))
   .field("version", string(2))
@@ -114,7 +120,7 @@ function* entries(path: string, archive: Stats): Generator<Uint8Array> {
     uid: stat.uid,
     gid: stat.gid,
     mtime: Math.floor(stat.mtimeMs / 1000),
-    type: directory ? Type.Directory : link ? Type.Link : Type.File,
+    type: directory ? "directory" : link ? "symlink" : "file",
     linkname: link ? readlinkSync(path) : "",
     magic: "ustar",
     version: "00",
@@ -140,7 +146,10 @@ function* entries(path: string, archive: Stats): Generator<Uint8Array> {
  * @yields The entries of `paths`, then the two zero blocks that end an archive.
  */
 function* tarball(paths: string[], archive: Stats): Generator<Uint8Array> {
-  for (const path of paths) yield* entries(path, archive);
+  for (const path of paths) {
+    // As tar does, archive a link given with a trailing slash as a link.
+    yield* entries(path.replace(/(?<=[^/])\/+$/u, ""), archive);
+  }
   yield new Uint8Array(1024);
 }
 
@@ -168,8 +177,11 @@ if (import.meta.main) {
   } else if (command === "list") {
     for await (const entry of decodeStream(Entry, createReadStream(archive))) {
       if (entry.name) {
+        const { type } = entry;
         console.log(
-          printable(entry.type),
+          printable(
+            typeof type === "number" ? String.fromCharCode(type) : type,
+          ),
           entry.size,
           printable(
             entry.prefix ? `${entry.prefix}/${entry.name}` : entry.name,

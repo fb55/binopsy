@@ -14,6 +14,7 @@ import { crc32 } from "node:zlib";
 
 import { describe, expect, it } from "vitest";
 
+import { pack } from "../examples/tar.ts";
 import {
   array,
   bin,
@@ -127,7 +128,7 @@ describe("Examples", () => {
       // Two blocks of zeros end the archive.
       expect(wire.subarray(1536).every((b) => b === 0)).toBe(true);
       const listing = node(example, "list", archive);
-      expect(listing).toMatch(/0 5 .*file\.txt/u);
+      expect(listing).toMatch(/^file 5 .*file\.txt$/mu);
       expect(listing).not.toMatch(/archive\.tar/u);
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -147,11 +148,46 @@ describe("Examples", () => {
         writeFileSync(join(tree, "a\u001B[2Kb\nc"), "");
         node(example, "pack", archive, tree);
         const listing = node(example, "list", archive);
-        expect(listing).toMatch(/^2 0 .*\/loop$/mu);
+        expect(listing).toMatch(/^symlink 0 .*\/loop$/mu);
         expect(listing).toContain(String.raw`a\u001b[2Kb\u000ac`);
+        // Not followed with a trailing slash either.
+        node(example, "pack", archive, `${join(tree, "loop")}/`);
+        expect(node(example, "list", archive)).toMatch(
+          /^symlink 0 \S*\/loop\n$/u,
+        );
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }
     },
   );
+
+  it("list the flags of other entries as they are", () => {
+    const dir = mkdtempSync(join(tmpdir(), "binopsy-tar-"));
+    try {
+      const archive = join(dir, "archive.tar");
+      const entry = {
+        name: "a",
+        mode: 0o644,
+        uid: 0,
+        gid: 0,
+        mtime: 0,
+        linkname: "",
+        magic: "ustar",
+        version: "00",
+        uname: "",
+        gname: "",
+        devmajor: 0,
+        devminor: 0,
+        prefix: "",
+        data: new Uint8Array(),
+      };
+      // A hard link, and an extended header of pax.
+      const hard = pack({ ...entry, type: "1".charCodeAt(0), linkname: "b" });
+      const pax = pack({ ...entry, type: "x".charCodeAt(0) });
+      writeFileSync(archive, Buffer.concat([hard, pax, new Uint8Array(1024)]));
+      expect(node(example, "list", archive)).toBe("1 0 a\nx 0 a\n");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
