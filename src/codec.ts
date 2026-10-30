@@ -288,8 +288,10 @@ export abstract class Codec<
 export type AnyCodec = Codec<unknown, never, never, boolean>;
 /**
  * A codec that may only decode, as one of `map` or `custom` without `encode`
- * does: every codec of `O` is one. It types a choice of parsers
- * (`cond ? A : B`), or a table of parsers of different fields.
+ * does. Every codec of `O` that decodes on its own is one (bit fields are
+ * not), and with `Ctx`, those reading the fields `Ctx` around them too. It
+ * types a choice of parsers (`cond ? A : B`), or a table of parsers of
+ * different fields.
  */
 export type Decoder<O, Ctx = unknown> = Codec<O, never, Ctx>;
 /** A codec argument (not `AnyCodec`: TypeScript would infer its `never` context for codecs written in the argument). */

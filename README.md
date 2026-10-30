@@ -619,7 +619,7 @@ An `EncodeError` has a `path`, a `detail` and a `cause`, but no `code` or offset
 - `Codec<O, I>` is the type of codecs; `Bin<T, I>` that of parsers, and `Struct<T, I>` that of parsers adding no more fields (computing some, or picking some).
 - `Context<typeof codec>` is the type of the fields a codec reads around it. A codec reading such fields (e.g. `bytes("length")`) only decodes and encodes in a parser that has them: `decode`, `encode`, `sizeOf`, `trace`, `Reader` and streams take codecs that read none.
 - `AnyCodec` and `AnyBin` accept any codec and any parser, in generic functions.
-- `Decoder<O>` is `Codec<O, never>`: a codec that may only decode, which every codec of `O` is. It types tables of parsers of different fields (`Record<number, Decoder<object>>`), and choices of codecs: functions that take a codec need it to have one type, so annotate `cond ? A : B` as `Decoder<Output<typeof A> | Output<typeof B>>` (`.merge` takes such choices as they are).
+- `Decoder<O>` is `Codec<O, never>`: a codec that may only decode, which every codec of `O` that decodes on its own is (`Decoder<O, Ctx>` also takes those reading the fields `Ctx` around them). It types tables of parsers of different fields (`Record<number, Decoder<object>>`), and choices of codecs: functions that take a codec need it to have one type, so annotate `cond ? A : B` as `Decoder<Output<typeof A> | Output<typeof B>>` (`.merge` takes such choices as they are).
 - Options and parts: `BinOptions`, `BitWidth`, `StringOptions`, `TerminatedStringOptions`, `Encoding`, `Length`, `CustomOptions`, `DecodeResult` and `Path`.
 
 TypeScript may miss a misspelled option in a union of option objects (`cond ? { terminator: 0 } : { padRight: 0 }`); options are also checked when a codec is defined.
