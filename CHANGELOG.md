@@ -3,6 +3,10 @@
 ## Unreleased
 
 - `codec.decodeExact(bytes, offset?)` decodes a value that must end the bytes, failing at the first byte after it.
+- `Decoder<O>` is the type of codecs that may only decode (`Codec<O, never>`), for choices and tables of parsers.
+- `reader.offset` can be set, to decode values in any order.
+- `parser.fields` lists the names of the fields a parser decodes.
+- `fail(error)` fails with an error of your own as the cause.
 
 ## 1.0.1
 

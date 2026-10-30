@@ -7,6 +7,7 @@ import {
   bytes,
   DecodeError,
   EncodeError,
+  fail,
   lazy,
   literal,
   map,
@@ -227,6 +228,30 @@ describe("Decoding errors", () => {
       thrown(() => u8.encodeInto(1, new Uint8Array(0))).path,
     ];
     for (const path of paths) expect(Object.isFrozen(path)).toBe(true);
+  });
+});
+
+describe("Errors of fail", () => {
+  it("have errors of your own as their cause", () => {
+    const reason = new RangeError("unsupported part");
+    const parser = bin().u8("kind").field("part", fail(reason));
+    expect(() => parser.decode(hex("01 02"))).toThrow(
+      expect.objectContaining({
+        name: "DecodeError",
+        code: "error",
+        path: ["part"],
+        offset: 1,
+        cause: reason,
+        message: "unsupported part in `part` at offset 1",
+      }),
+    );
+    expect(() => parser.encode({ kind: 1 } as never)).toThrow(
+      expect.objectContaining({
+        name: "EncodeError",
+        path: ["part"],
+        cause: reason,
+      }),
+    );
   });
 });
 

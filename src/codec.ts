@@ -286,6 +286,12 @@ export abstract class Codec<
  * (Inputs and contexts are contravariant, so their top type is `never`.)
  */
 export type AnyCodec = Codec<unknown, never, never, boolean>;
+/**
+ * A codec that may only decode, as one of `map` or `custom` without `encode`
+ * does: every codec of `O` is one. It types a choice of parsers
+ * (`cond ? A : B`), or a table of parsers of different fields.
+ */
+export type Decoder<O, Ctx = unknown> = Codec<O, never, Ctx>;
 /** A codec argument (not `AnyCodec`: TypeScript would infer its `never` context for codecs written in the argument). */
 export type AnyCase = { readonly [types]: { packed?: false } };
 /** The type of the values codec `C` decodes: `Output<typeof Header>`. */
@@ -470,12 +476,22 @@ export class Reader {
   }
 
   /**
-   * Where the next value starts.
+   * Where the next value starts. Setting it moves the reader, e.g. to a
+   * value found through an index.
    *
    * @returns The offset in the bytes.
    */
   get offset(): number {
     return this.#cur.offset;
+  }
+
+  /**
+   * @param offset Where the next value starts.
+   * @throws {RangeError} If `offset` is outside the bytes.
+   */
+  set offset(offset: number) {
+    checkOffset(offset, this.#cur.bytes);
+    this.#cur.offset = offset;
   }
 
   /**
@@ -495,7 +511,7 @@ export class Reader {
    * @throws {DecodeError} If decoding fails; the offset then stays where it
    *   was.
    */
-  read<O>(codec: Codec<O, never>): O {
+  read<O>(codec: Decoder<O>): O {
     const start = this.#cur.offset;
     try {
       return codec.decoder()(this.#cur) as O;

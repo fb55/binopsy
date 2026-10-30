@@ -177,6 +177,25 @@ describe("Readers", () => {
     expect(reader.done).toBe(true);
   });
 
+  it("move to an offset that is set", () => {
+    const reader = new Reader(hex("01 02 03"));
+    reader.offset = 2;
+    expect(reader.read(u8)).toBe(3);
+    reader.offset = 0;
+    expect(reader.read(u8)).toBe(1);
+    for (const offset of [-1, 1.5, 4]) {
+      expect(() => (reader.offset = offset)).toThrow(RangeError);
+    }
+    expect(reader.offset).toBe(1);
+  });
+
+  it("decode bytes of a Buffer to Buffers", () => {
+    const parser = bin().u8("n").field("b", bytes("n"));
+    const input = Buffer.from([2, 7, 8]);
+    expect(Buffer.isBuffer(parser.decode(input).b)).toBe(true);
+    expect(Buffer.isBuffer(new Reader(input).read(parser).b)).toBe(true);
+  });
+
   it("read shared memory", () => {
     const shared = new Uint8Array(new SharedArrayBuffer(5));
     shared.set(hex("03 616263 09"));

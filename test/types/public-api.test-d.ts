@@ -1,6 +1,7 @@
 import { describe, expectTypeOf, it } from "vitest";
 
 import {
+  array,
   bin,
   bytes,
   decodeStream,
@@ -11,6 +12,7 @@ import {
   u8,
   type AnyBin,
   type Context,
+  type Decoder,
   type Input,
   type Output,
 } from "../../src/index.ts";
@@ -53,6 +55,31 @@ describe("Parser methods", () => {
     for await (const value of decodeStream(Record, [])) {
       expectTypeOf(value).toEqualTypeOf<Decoded>();
     }
+    expectTypeOf(Record.fields).toEqualTypeOf<
+      readonly ("n" | "items" | "tail")[]
+    >();
+  });
+});
+
+describe("Decoder", () => {
+  it("takes every codec of its values, which then only decode", () => {
+    const parsers: Record<number, Decoder<object>> = {
+      1: bin().u8("a"),
+      2: bin().u32le("b").field("c", string(u8)),
+    };
+    expectTypeOf(
+      new Reader(new Uint8Array()).read(parsers[1]),
+    ).toEqualTypeOf<object>();
+    const A = bin().u8("a");
+    const B = bin().u8("a").u8("b");
+    const choice: Decoder<Output<typeof A> | Output<typeof B>> =
+      Math.random() > 0.5 ? A : B;
+    const pair = array(choice, 2);
+    expectTypeOf<Output<typeof pair>>().toEqualTypeOf<
+      ({ a: number } | { a: number; b: number })[]
+    >();
+    // @ts-expect-error A decoder does not encode.
+    choice.encode({ a: 1, b: 2 });
   });
 });
 

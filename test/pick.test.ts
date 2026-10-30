@@ -54,6 +54,17 @@ describe("Picked fields", () => {
     expect(Record.pick().decode(input)).toStrictEqual({});
   });
 
+  it("are those of the parser's fields that are named", () => {
+    const Merged = bin()
+      .u8("tag")
+      .merge(match("tag").case(1, bin().u8("a")).case(2, bin().u8("b")));
+    expect(Merged.fields).toStrictEqual(["tag", "a", "b"]);
+    const wanted = new Set(["b", "c"]);
+    const Picked = Merged.pick(...Merged.fields.filter((n) => wanted.has(n)));
+    expect(Picked.fields).toStrictEqual(["b"]);
+    expect(Picked.decode(hex("02 07"))).toStrictEqual({ b: 7 });
+  });
+
   it("follow values of lengths from functions", () => {
     const parser = bin()
       .u8("n")

@@ -1572,20 +1572,30 @@ export function lazy<O, I = O, D extends boolean = false>(
 }
 
 class Fail extends Codec<never> {
-  private readonly message: string;
+  private readonly reason: string | Error;
 
-  constructor(message: string) {
+  constructor(reason: string | Error) {
     super(Number.NaN, true);
-    this.message = message;
+    this.reason = reason;
   }
 
   emitRead(g: Gen): string {
-    g.fail("invalid", JSON.stringify(this.message));
+    this.emitFail(g);
     return "undefined";
   }
 
   emitWrite(g: Gen): void {
-    g.fail("invalid", JSON.stringify(this.message));
+    this.emitFail(g);
+  }
+
+  private emitFail(g: Gen): void {
+    const { reason } = this;
+    if (typeof reason === "string") {
+      g.fail("invalid", JSON.stringify(reason));
+    } else {
+      // Located as errors that functions throw are, with it as their cause.
+      g.guard(`throw ${g.k(reason)};`);
+    }
   }
 }
 
@@ -1593,14 +1603,16 @@ class Fail extends Codec<never> {
  * A codec that fails decoding and encoding, e.g. for parts of a format that
  * are not supported.
  *
- * @param message The detail of the errors (a `DecodeError` of code
- *   `"invalid"`, or an `EncodeError`).
+ * @param reason The detail of the errors (a `DecodeError` of code
+ *   `"invalid"`, or an `EncodeError`), or an error of your own: it is then
+ *   the `cause` of theirs, as errors that functions throw are (the
+ *   `DecodeError` has the code `"error"`).
  * @returns A codec of no values.
  * @example
  * match("compression")
  *   .case(0, bytes(u32le))
  *   .case(1, fail("compressed data is not supported"));
  */
-export function fail(message: string): Codec<never> {
-  return new Fail(message);
+export function fail(reason: string | Error): Codec<never> {
+  return new Fail(reason);
 }
