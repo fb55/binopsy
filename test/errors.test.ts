@@ -16,7 +16,7 @@ import {
   u8,
   type Codec,
 } from "../src/index.ts";
-import { decodeFails, type Failure, type Standalone } from "./helpers.ts";
+import { decodeFails, hex, type Failure, type Standalone } from "./helpers.ts";
 
 const Item = bin().u8("kind").field("name", string(u8));
 const Point = bin().u8("x").field("y", literal(u8, 1));
@@ -25,6 +25,14 @@ const Shape = bin()
   .u16le("id")
   .field("center", bin().field("at", Point))
   .field("points", array(Point, u8));
+function thrown(f: () => unknown): { path: unknown } {
+  try {
+    f();
+  } catch (e) {
+    return e as { path: unknown };
+  }
+  throw new Error("did not throw");
+}
 // Errors in it pass through a call for each level.
 interface Tree {
   "a b": number;
@@ -204,6 +212,18 @@ describe("Decoding errors", () => {
     const second = new DecodeError("invalid", "bad", 0, path);
     expect(first.message).toBe("bad in `first` at offset 0");
     expect(second.message).toBe("bad in `second` at offset 0");
+  });
+
+  it("have paths that cannot change, so that their messages stay right", () => {
+    const leaf = { "a b": 1, kids: [] };
+    const paths = [
+      new DecodeError("invalid", "bad", 0, ["a"]).path,
+      thrown(() => Tree.decode(hex("01 01 01 02 01 00"))).path,
+      thrown(() =>
+        Tree.encode({ ...leaf, kids: [{ ...leaf, kids: 7 }] } as never),
+      ).path,
+    ];
+    for (const path of paths) expect(Object.isFrozen(path)).toBe(true);
   });
 });
 

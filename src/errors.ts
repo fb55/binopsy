@@ -6,9 +6,9 @@ export const MORE = Symbol("more");
 
 const identifier = /^[A-Za-z_$][\w$]*$/u;
 
-// The text of the paths that errors own (not of arrays given to them, which
-// may change): an error rethrown by each level of a deep value extends the
-// text of the one below instead of writing it all again.
+// The text of the paths that errors own, which are frozen (unlike arrays
+// given to them): an error rethrown by each level of a deep value extends
+// the text of the one below instead of writing it all again.
 const written = new WeakMap<Path, string>();
 
 /**
@@ -38,7 +38,7 @@ function where(path: Path): string {
  * @returns The joined path, with its text written from both.
  */
 function nested(outer: Path, inner: Path): Path {
-  const path = [...outer, ...inner];
+  const path = Object.freeze([...outer, ...inner]);
   const [first] = inner;
   const dot =
     outer.length > 0 && typeof first === "string" && identifier.test(first);
@@ -108,7 +108,7 @@ export class DecodeError extends Error {
     this.code = code;
     this.detail = detail;
     this.offset = offset;
-    this.path = [...path];
+    this.path = Object.freeze([...path]);
     written.set(this.path, text);
   }
 }
@@ -182,7 +182,7 @@ export function encodingWithin(e: unknown, path: Path): EncodeError {
     own ? e.detail : messageOf(e),
     own ? e.cause : e,
   ) as Mutable<EncodeError>;
-  err.path = own ? nested(path, e.path) : [...path];
+  err.path = own ? nested(path, e.path) : Object.freeze([...path]);
   err.message = located(err.detail, where(err.path));
   return err;
 }
