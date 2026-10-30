@@ -1,6 +1,6 @@
 {
   "name": "binopsy",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Read and write binary formats in TypeScript, with types that check how the fields fit together: compiled decoders and encoders, streams and partial decoding",
   "keywords": [
     "binary",
