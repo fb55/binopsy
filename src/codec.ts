@@ -9,7 +9,7 @@ import {
   type Reads,
   type Selection,
 } from "./compile.ts";
-import { EncodeError, type Path } from "./errors.ts";
+import { DecodeError, EncodeError, type Path } from "./errors.ts";
 
 /** Types only: the key of a codec's types (not a property at run time). */
 export declare const types: unique symbol;
@@ -144,9 +144,37 @@ export abstract class Codec<
    * @throws {RangeError} If `offset` is outside `bytes`.
    */
   decode(this: Standalone, bytes: Uint8Array, offset = 0): O {
-    const cur = cursor(bytes, offset, true);
     const codec = this as unknown as AnyCodec;
-    return (codec.#bufferDecoder ??= compile(codec, "buffer", "all"))(cur) as O;
+    return codec.#decodeAt(cursor(bytes, offset, true)) as O;
+  }
+
+  /**
+   * Decodes the value at `offset` of `bytes`, which must end with it: for
+   * files and messages that hold one value.
+   *
+   * @param bytes The input.
+   * @param offset Where the value starts (default 0).
+   * @returns The value.
+   * @throws {DecodeError} As `decode` does, and with the code `"invalid"` at
+   *   the first byte after the value if there are any.
+   * @throws {RangeError} If `offset` is outside `bytes`.
+   */
+  decodeExact(this: Standalone, bytes: Uint8Array, offset = 0): O {
+    const cur = cursor(bytes, offset, true);
+    const value = (this as unknown as AnyCodec).#decodeAt(cur);
+    const left = cur.end - cur.offset;
+    if (left > 0) {
+      throw new DecodeError(
+        "invalid",
+        `${left} ${left === 1 ? "byte" : "bytes"} after the value`,
+        cur.offset,
+      );
+    }
+    return value as O;
+  }
+
+  #decodeAt(cur: Cursor): unknown {
+    return (this.#bufferDecoder ??= compile(this, "buffer", "all"))(cur);
   }
 
   /**
@@ -258,6 +286,14 @@ export abstract class Codec<
  * (Inputs and contexts are contravariant, so their top type is `never`.)
  */
 export type AnyCodec = Codec<unknown, never, never, boolean>;
+/**
+ * A codec that may only decode, as one of `map` or `custom` without `encode`
+ * does. Every codec of `O` that decodes on its own is one (bit fields are
+ * not), and with `Ctx`, those reading the fields `Ctx` around them too. It
+ * types a choice of parsers (`cond ? A : B`), or a table of parsers of
+ * different fields.
+ */
+export type Decoder<O, Ctx = unknown> = Codec<O, never, Ctx>;
 /** A codec argument (not `AnyCodec`: TypeScript would infer its `never` context for codecs written in the argument). */
 export type AnyCase = { readonly [types]: { packed?: false } };
 /** The type of the values codec `C` decodes: `Output<typeof Header>`. */
@@ -442,12 +478,22 @@ export class Reader {
   }
 
   /**
-   * Where the next value starts.
+   * Where the next value starts. Setting it moves the reader, e.g. to a
+   * value found through an index.
    *
    * @returns The offset in the bytes.
    */
   get offset(): number {
     return this.#cur.offset;
+  }
+
+  /**
+   * @param offset Where the next value starts.
+   * @throws {RangeError} If `offset` is outside the bytes.
+   */
+  set offset(offset: number) {
+    checkOffset(offset, this.#cur.bytes);
+    this.#cur.offset = offset;
   }
 
   /**
@@ -467,7 +513,7 @@ export class Reader {
    * @throws {DecodeError} If decoding fails; the offset then stays where it
    *   was.
    */
-  read<O>(codec: Codec<O, never>): O {
+  read<O>(codec: Decoder<O>): O {
     const start = this.#cur.offset;
     try {
       return codec.decoder()(this.#cur) as O;

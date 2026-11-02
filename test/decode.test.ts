@@ -177,6 +177,25 @@ describe("Readers", () => {
     expect(reader.done).toBe(true);
   });
 
+  it("move to an offset that is set", () => {
+    const reader = new Reader(hex("01 02 03"));
+    reader.offset = 2;
+    expect(reader.read(u8)).toBe(3);
+    reader.offset = 0;
+    expect(reader.read(u8)).toBe(1);
+    for (const offset of [-1, 1.5, 4]) {
+      expect(() => (reader.offset = offset)).toThrow(RangeError);
+    }
+    expect(reader.offset).toBe(1);
+  });
+
+  it("decode bytes of a Buffer to Buffers", () => {
+    const parser = bin().u8("n").field("b", bytes("n"));
+    const input = Buffer.from([2, 7, 8]);
+    expect(Buffer.isBuffer(parser.decode(input).b)).toBe(true);
+    expect(Buffer.isBuffer(new Reader(input).read(parser).b)).toBe(true);
+  });
+
   it("read shared memory", () => {
     const shared = new Uint8Array(new SharedArrayBuffer(5));
     shared.set(hex("03 616263 09"));
@@ -184,5 +203,48 @@ describe("Readers", () => {
     expect(parser.decode(shared)).toStrictEqual({ s: "abc", x: 9 });
     const reader = new Reader(shared, 4);
     expect(reader.read(u8)).toBe(9);
+  });
+});
+
+describe("Exact decoding", () => {
+  const Str = bin().u8("len").field("text", string("len"));
+
+  it("decodes a value that ends the bytes, also from an offset", () => {
+    expect(Str.decodeExact(hex("02 6162"))).toStrictEqual({
+      len: 2,
+      text: "ab",
+    });
+    expect(Str.decodeExact(hex("ffff 00"), 2)).toStrictEqual({
+      len: 0,
+      text: "",
+    });
+    expect(Str.pick("text").decodeExact(hex("01 61"))).toStrictEqual({
+      text: "a",
+    });
+  });
+
+  it("fails at the first byte after the value", () => {
+    expect(() => Str.decodeExact(hex("01 61 62"))).toThrow(
+      decodeError({
+        code: "invalid",
+        path: [],
+        offset: 2,
+        message: /^1 byte after the value at offset 2$/u,
+      }),
+    );
+    expect(() => u8.decodeExact(hex("01 0203"))).toThrow(
+      decodeError({
+        code: "invalid",
+        offset: 1,
+        message: /^2 bytes after the value/u,
+      }),
+    );
+  });
+
+  it("fails as decode does inside the value", () => {
+    expect(() => Str.decodeExact(hex("05 61"))).toThrow(
+      decodeError({ code: "end-of-input", path: ["text"], offset: 1 }),
+    );
+    expect(() => u8.decodeExact(hex("00"), 2)).toThrow(RangeError);
   });
 });
