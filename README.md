@@ -521,7 +521,7 @@ Field names are unique: adding a name twice throws when the parser is defined (T
 | `match(tag).case(value, codec)…`                  | One of several codecs, picked by a tag (`.otherwise(codec)` for other values)                                                                            |
 | `lazy(() => codec)`                               | A codec defined later, for formats that contain themselves                                                                                               |
 | `custom({ decode, encode?, size? })`              | A codec of functions of your own                                                                                                                         |
-| `fail(message)`, `fail(error)`                    | Nothing: decoding and encoding fail (e.g. for parts that are not supported); an error of yours is their `cause`                                          |
+| `fail(message)`, `fail(error)`                    | Nothing: decoding and encoding fail (e.g. for parts that are not supported), with an error of yours as if a function threw it ([Errors](#errors))        |
 
 Every codec has `decode`, `encode`, `encodeInto` and `sizeOf`, and `size`: the size of every value in bytes, or `NaN` if it varies (and always for `lazy`).
 
@@ -612,6 +612,8 @@ Every value must take at least one byte. A value that reads up to the end of the
 | `cause`       | The exception, for `"error"`                                                                  |
 
 An `EncodeError` has a `path`, a `detail` and a `cause`, but no `code` or offset. Offsets of `DecodeError`s that `custom` decoders throw are in the bytes they got; binopsy moves them to the input's.
+
+An error that a function of yours throws, or that you give to `fail`, is the `cause` of the `DecodeError` or `EncodeError`, except a `DecodeError` thrown when decoding, which keeps its code, offset and cause, and an `EncodeError` thrown when encoding, which keeps its detail and cause.
 
 ### Types
 
