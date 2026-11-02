@@ -1,5 +1,24 @@
 README.md
   s_9822029f13e609::t_84cc29ef007c14 313
+  s_9822029f13e609::t_af4cca5fc7df1d 107,368,496,524,590,622
+test/decode.test.ts
+  s_9822029f13e609::t_af4cca5fc7df1d 180-198
+src/bin.ts
+  s_9822029f13e609::t_af4cca5fc7df1d 250-254,631-633
+src/codecs.ts
+  s_9822029f13e609::t_af4cca5fc7df1d 1575,1577,1579,1583,1588-1598,1606-1609,1616-1617
+CHANGELOG.md
+  s_9822029f13e609::t_af4cca5fc7df1d 6-9
+src/codec.ts
+  s_9822029f13e609::t_af4cca5fc7df1d 289-294,479-480,488-496,514
+src/index.ts
+  s_9822029f13e609::t_af4cca5fc7df1d 7
+test/errors.test.ts
+  s_9822029f13e609::t_af4cca5fc7df1d 10,234-254
+test/pick.test.ts
+  s_9822029f13e609::t_af4cca5fc7df1d 57-67
+test/types/public-api.test-d.ts
+  s_9822029f13e609::t_af4cca5fc7df1d 4,15,58-82
 ---
 {
   "schema_version": "authorship/3.0.0",
