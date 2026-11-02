@@ -7,9 +7,6 @@
 - `reader.offset` can be set, to decode values in any order.
 - `parser.fields` lists the names of the fields a parser decodes.
 - `fail(error)` fails with an error of your own as the cause.
-
-## 1.0.1
-
 - Arrays with a count read from the input, of items that vary in size, reserve no more places than the input has bytes: a few bytes no longer make decoding allocate hundreds of megabytes before it fails.
 - A failure deep in a recursive value no longer writes out its whole path again at each level it passes. The `path` of errors is frozen.
 
