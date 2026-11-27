@@ -167,20 +167,19 @@ type Apply<
   ? T extends unknown
     ? [Tag] extends [never]
       ? Pretty<T & Part<CaseCodec<Cs> | D, K, S>>
-      :
-          | (Cs extends readonly [infer V, infer C]
-              ? Branch<T, Tag, V, C, K, S>
-              : never)
-          | ([D] extends [never]
-              ? never
-              : Branch<
-                  T,
-                  Tag,
-                  Subtract<TagIn<T, Outer, Tag>, CaseValue<Cs>>,
-                  D,
-                  K,
-                  S
-                >)
+      : | (Cs extends readonly [infer V, infer C]
+            ? Branch<T, Tag, V, C, K, S>
+            : never)
+        | ([D] extends [never]
+            ? never
+            : Branch<
+                T,
+                Tag,
+                Subtract<TagIn<T, Outer, Tag>, CaseValue<Cs>>,
+                D,
+                K,
+                S
+              >)
     : never
   : never;
 
